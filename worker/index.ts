@@ -98,20 +98,21 @@ function decodeBase64Utf8(text: string): string {
 }
 
 async function getR2FontName(env: Env, key: string, fallbackName: string): Promise<string> {
-  const metadataKey = `fontmeta:${key}`
-  const storedName = await env.subKV.get(metadataKey)
-  if (storedName) return storedName
   const object = await env.R2.get(key)
   if (!object) return fallbackName.replace(/\.(ttf|otf|ttc|woff2?)$/i, '')
   const encodedName = object.customMetadata?.fontNameBase64
   const metadataName = encodedName ? decodeBase64Utf8(encodedName) : object.customMetadata?.fontName
-  if (metadataName) {
-    await env.subKV.put(metadataKey, metadataName)
-    return metadataName
-  }
+  if (metadataName) return metadataName
   const buffer = await object.arrayBuffer()
   const parsedName = parseFontName(buffer) || fallbackName.replace(/\.(ttf|otf|ttc|woff2?)$/i, '')
-  await env.subKV.put(metadataKey, parsedName)
+  await env.R2.put(key, buffer, {
+    httpMetadata: object.httpMetadata || undefined,
+    customMetadata: {
+      ...(object.customMetadata || {}),
+      originalName: object.customMetadata?.originalName || fallbackName,
+      fontNameBase64: encodeBase64Utf8(parsedName),
+    },
+  })
   return parsedName
 }
 
@@ -323,7 +324,6 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
       httpMetadata: { contentType },
       customMetadata: { originalName: fileName, fontNameBase64: encodeBase64Utf8(fontName) },
     })
-    await env.subKV.put(`fontmeta:${key}`, fontName)
     const domain = (await env.subKV.get('config:r2_domain')) || ''
     const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(fileName)}` : ''
     return jsonResponse({ success: true, key, downloadUrl, fontName })

@@ -95,7 +95,7 @@ export async function createBlob(content: string, encoding: 'utf-8' | 'base64' =
   return data.sha
 }
 
-export async function createTree(baseTree: string, tree: Array<{ path: string; mode: string; type: string; sha: string }>): Promise<string> {
+export async function createTree(baseTree: string, tree: Array<{ path: string; mode: string; type: string; sha: string | null }>): Promise<string> {
   const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/git/trees`
   const res = await githubFetch(url, {
     method: 'POST',

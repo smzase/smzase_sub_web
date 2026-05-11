@@ -30,7 +30,6 @@
                         {{ lang === 'zh-hans' ? '简中' : lang === 'zh-hant' ? '繁中' : lang }}
                       </n-tag>
                       <n-tag size="small" type="info">{{ anime.subtitleCount }} 个字幕</n-tag>
-                      <n-button size="tiny" type="error" @click="startDeleteAnime(year, anime.folder)">删除动画</n-button>
                     </n-space>
                   </template>
                 </n-thing>
@@ -115,37 +114,6 @@
         <n-button @click="showEditModal = false">关闭</n-button>
       </template>
     </n-modal>
-
-    <n-modal v-model:show="showDeleteAnimeModal" preset="card" title="删除动画" style="width: 420px;">
-      <n-space vertical align="center">
-        <n-text type="error" style="font-size: 16px; font-weight: bold;">
-          即将删除「{{ deleteAnimeTarget?.folder }}」的全部字幕文件
-        </n-text>
-        <n-text depth="3">此操作不可撤销，删除后文件夹及所有字幕将永久移除</n-text>
-        <n-divider style="margin: 8px 0;" />
-        <template v-if="deleteAnimeStep === 1">
-          <n-text>第一步：确认删除（共需确认 3 次）</n-text>
-          <n-space justify="center" style="width: 100%;">
-            <n-button type="error" @click="deleteAnimeStep = 2">确认删除</n-button>
-            <n-button @click="showDeleteAnimeModal = false">取消</n-button>
-          </n-space>
-        </template>
-        <template v-else-if="deleteAnimeStep === 2">
-          <n-text type="warning">第二步：再次确认（还剩 2 次确认）</n-text>
-          <n-space justify="center" style="width: 100%;">
-            <n-button type="error" @click="deleteAnimeStep = 3">确认删除</n-button>
-            <n-button @click="showDeleteAnimeModal = false">取消</n-button>
-          </n-space>
-        </template>
-        <template v-else-if="deleteAnimeStep === 3">
-          <n-text type="error" style="font-weight: bold;">第三步：最终确认（最后一次）</n-text>
-          <n-space justify="center" style="width: 100%;">
-            <n-button type="error" :loading="deleteAnimeLoading" @click="doDeleteAnime">确认删除</n-button>
-            <n-button @click="showDeleteAnimeModal = false">取消</n-button>
-          </n-space>
-        </template>
-      </n-space>
-    </n-modal>
   </div>
 </template>
 
@@ -154,7 +122,7 @@ import { ref, h, onMounted } from 'vue'
 import { NButton, NSpace, NPopconfirm, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
-import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, deleteFolder } from '../utils/github'
+import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme } from '../utils/readme'
 
 interface AnimeListItem {
@@ -176,10 +144,6 @@ const showEditModal = ref(false)
 const editingSubtitle = ref<SubtitleFile | null>(null)
 const checkedFonts = ref<string[]>([])
 const confirmFontBatchRemove = ref(false)
-const showDeleteAnimeModal = ref(false)
-const deleteAnimeStep = ref(1)
-const deleteAnimeLoading = ref(false)
-const deleteAnimeTarget = ref<{ year: string; folder: string } | null>(null)
 const yearReadmeLoading = ref('')
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
@@ -323,34 +287,6 @@ async function doBatchDelete() {
     message.success('批量删除完成')
   } catch (err: any) {
     message.error(`批量删除失败: ${err.message}`)
-  }
-}
-
-function startDeleteAnime(year: string, folder: string) {
-  deleteAnimeTarget.value = { year, folder }
-  deleteAnimeStep.value = 1
-  showDeleteAnimeModal.value = true
-}
-
-async function doDeleteAnime() {
-  if (!deleteAnimeTarget.value) return
-  const { year, folder } = deleteAnimeTarget.value
-  const folderPath = `Anime subtitles/${year}/${folder}`
-  deleteAnimeLoading.value = true
-  try {
-    await deleteFolder(folderPath, `chore: 删除动画 ${folder}`)
-    if (expandedAnime.value === `${year}/${folder}`) {
-      expandedAnime.value = ''
-      animeDetail.value = null
-    }
-    await updateYearReadme(year)
-    await loadData()
-    showDeleteAnimeModal.value = false
-    message.success(`已删除 ${folder}`)
-  } catch (err: any) {
-    message.error(`删除失败: ${err.message}`)
-  } finally {
-    deleteAnimeLoading.value = false
   }
 }
 

@@ -6,7 +6,8 @@ export function generateYearReadme(year: string, animeList: Array<{ titleEn: str
   md += `| 标题 | 中文名 |\n`
   md += `| --- | --- |\n`
   for (const anime of animeList) {
-    md += `| [${anime.titleEn}](./${anime.titleEn}/) | ${anime.titleCn} |\n`
+    const encodedPath = anime.titleEn.split('/').map(s => encodeURIComponent(s)).join('/')
+    md += `| [${anime.titleEn}](./${encodedPath}/) | ${anime.titleCn || ''} |\n`
   }
   return md
 }
@@ -19,7 +20,7 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
   }
 
   if (anime.titleCn) {
-    md += `**中文名:** ${anime.titleCn}\n\n`
+    md += `## ${anime.titleCn}\n\n`
   }
 
   if (anime.languages.length > 0) {
@@ -110,7 +111,7 @@ export function parseAnimeReadme(content: string): {
     result.coverUrl = coverMatch[1]
   }
 
-  const cnMatch = content.match(/\*\*中文名:\*\*\s*(.+)/)
+  const cnMatch = content.match(/^## (.+)$/m)
   if (cnMatch) {
     result.titleCn = cnMatch[1].trim()
   }
