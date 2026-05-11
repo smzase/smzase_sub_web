@@ -110,7 +110,7 @@
               点击、拖拽或粘贴字体文件到此处上传
             </n-text>
             <n-text depth="3">
-              支持 TTF/OTF/TTC/WOFF/WOFF2 格式，大于 25MB 的文件将自动分片上传
+              支持 TTF/OTF/TTC/WOFF/WOFF2 格式，字体将上传至 R2 对象存储
             </n-text>
           </div>
         </div>
@@ -211,7 +211,8 @@ import { NTag, NButton, NSpace, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
-import { uploadFiles, uploadLargeFile, getToken, getContents, readmeUrl, rawUrl, downloadUrl } from '../utils/github'
+import { uploadFiles, getToken, getContents, readmeUrl, rawUrl, downloadUrl } from '../utils/github'
+import { uploadFontToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -225,7 +226,6 @@ interface QueueItem {
   error?: string
 }
 
-const TEMPLATE_STORAGE_KEY = 'smzase_saved_templates'
 const CURRENT_TEMPLATE_KEY = 'smzase_current_template'
 
 const message = useMessage()
@@ -339,10 +339,10 @@ function detectLanguagesFromQueue() {
   template.value.languages = detectedLanguages.value
 }
 
-function loadSavedTemplates() {
+async function loadSavedTemplates() {
   try {
-    const raw = localStorage.getItem(TEMPLATE_STORAGE_KEY)
-    if (raw) savedTemplates.value = JSON.parse(raw)
+    const result = await apiGetTemplates()
+    if (result && result.templates) savedTemplates.value = result.templates
   } catch {
     savedTemplates.value = []
   }
@@ -361,11 +361,11 @@ function persistCurrentTemplate() {
   localStorage.setItem(CURRENT_TEMPLATE_KEY, JSON.stringify(template.value))
 }
 
-function persistTemplates() {
-  localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(savedTemplates.value))
+async function persistTemplates() {
+  await apiSaveTemplates(savedTemplates.value)
 }
 
-function saveTemplate() {
+async function saveTemplate() {
   if (!template.value.name && !template.value.titleEn) {
     message.warning('请先填写模板名称或英文标题')
     return
@@ -378,11 +378,11 @@ function saveTemplate() {
   } else {
     savedTemplates.value.push(copy)
   }
-  persistTemplates()
+  await persistTemplates()
   message.success(`模板 "${name}" 已保存`)
 }
 
-function applyTemplateAndSave() {
+async function applyTemplateAndSave() {
   if (template.value.year) {
     selectedYear.value = template.value.year
     const exists = yearOptions.value.some(o => o.value === template.value.year)
@@ -397,7 +397,7 @@ function applyTemplateAndSave() {
       animeOptions.value.push({ label: template.value.titleEn, value: template.value.titleEn })
     }
   }
-  saveTemplate()
+  await saveTemplate()
   showTemplateModal.value = false
 }
 
@@ -417,10 +417,10 @@ function loadTemplate(t: UploadTemplate) {
   message.success(`已加载模板 "${t.name || t.titleEn}"`)
 }
 
-function deleteTemplate(idx: number) {
+async function deleteTemplate(idx: number) {
   const name = savedTemplates.value[idx]?.name || savedTemplates.value[idx]?.titleEn
   savedTemplates.value.splice(idx, 1)
-  persistTemplates()
+  await persistTemplates()
   message.success(`模板 "${name}" 已删除`)
 }
 
@@ -768,15 +768,8 @@ async function commitFonts() {
     for (const item of fontQueue.value) {
       item.status = 'uploading'
       try {
-        if (item.size > 25 * 1024 * 1024) {
-          await uploadLargeFile(item.path, item.content, `feat: add font ${item.originalName}`)
-        } else {
-          const base64 = arrayBufferToBase64(item.content)
-          await uploadFiles(
-            [{ path: item.path, content: base64, encoding: 'base64' }],
-            `feat: add font ${item.originalName}`
-          )
-        }
+        const file = new File([item.content], item.originalName)
+        await uploadFontToR2(file)
         item.status = 'done'
       } catch (err: any) {
         item.status = 'error'
@@ -801,9 +794,9 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
-onMounted(() => {
+onMounted(async () => {
   document.addEventListener('paste', onPaste)
-  loadSavedTemplates()
+  await loadSavedTemplates()
   if (getToken()) loadYears()
 })
 

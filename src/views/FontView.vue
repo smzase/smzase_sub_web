@@ -2,7 +2,16 @@
   <div>
     <n-card title="字体列表">
       <template #header-extra>
-        <n-button size="small" :loading="loading" @click="loadFonts">刷新</n-button>
+        <n-space size="small" align="center">
+          <n-input
+            v-model:value="searchKeyword"
+            placeholder="搜索字体..."
+            clearable
+            size="small"
+            style="width: 200px;"
+          />
+          <n-button size="small" :loading="loading" @click="loadFonts">刷新</n-button>
+        </n-space>
       </template>
 
       <n-spin :show="loading">
@@ -11,9 +20,9 @@
         <n-data-table
           v-if="fonts.length > 0"
           :columns="columns"
-          :data="fonts"
+          :data="filteredFonts"
           :pagination="{ pageSize: 20 }"
-          :row-key="(row: FontItem) => row.path"
+          :row-key="(row: FontItem) => row.key"
           :checked-row-keys="checkedFonts"
           @update:checked-row-keys="onCheckChange"
         />
@@ -58,26 +67,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
-import { NButton, NSpace, NTag, NPopconfirm, useMessage } from 'naive-ui'
+import { ref, computed, onMounted, h } from 'vue'
+import { NButton, NSpace, NPopconfirm, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import { getContents, downloadUrl, readmeUrl, getToken, uploadFiles, deleteFile } from '../utils/github'
+import { getContents, readmeUrl, getToken, uploadFiles, deleteFile, downloadUrl } from '../utils/github'
+import { deleteFontFromR2, listR2Fonts } from '../utils/api'
 import { formatFileSize } from '../utils/rename'
 import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
 
 interface FontItem {
   name: string
-  path: string
+  key: string
   size: number
   downloadUrl: string
-  isManifest: boolean
-  partPaths: string[]
 }
 
 const message = useMessage()
 const loading = ref(false)
 const linking = ref(false)
 const fonts = ref<FontItem[]>([])
+const searchKeyword = ref('')
 const showLinkModal = ref(false)
 const selectedFont = ref<FontItem | null>(null)
 const checkedFonts = ref<string[]>([])
@@ -91,15 +100,16 @@ const linkForm = ref({
 const yearOptions = ref<SelectOption[]>([])
 const animeOptions = ref<SelectOption[]>([])
 
+const filteredFonts = computed(() => {
+  const kw = searchKeyword.value.trim().toLowerCase()
+  if (!kw) return fonts.value
+  return fonts.value.filter(f => f.name.toLowerCase().includes(kw))
+})
+
 const columns: DataTableColumns<FontItem> = [
-  {
-    type: 'selection',
-  },
+  { type: 'selection' },
   { title: '字体文件名', key: 'name', ellipsis: { tooltip: true } },
-  {
-    title: '大小', key: 'size', width: 120,
-    render: (row) => row.isManifest ? h(NTag, { size: 'small', type: 'warning' }, { default: () => '分片文件' }) : formatFileSize(row.size),
-  },
+  { title: '大小', key: 'size', width: 120, render: (row) => formatFileSize(row.size) },
   {
     title: '操作', key: 'actions', width: 160,
     render: (row) => h(NSpace, { size: 4 }, {
@@ -127,69 +137,24 @@ function onCheckChange(keys: string[]) {
 }
 
 async function loadFonts() {
-  if (!getToken()) {
-    message.warning('请先设置 GitHub Token')
-    return
-  }
   loading.value = true
   try {
-    const contents = await getContents('Fonts')
-    if (!contents || !Array.isArray(contents)) {
-      fonts.value = []
-      return
-    }
+    const result = await listR2Fonts()
+    fonts.value = result.files
 
-    const manifestFiles = new Set<string>()
-    const partFileMap = new Map<string, string[]>()
-    for (const item of contents) {
-      if (item.name.endsWith('.manifest.json')) {
-        const baseName = item.name.replace('.manifest.json', '')
-        manifestFiles.add(baseName)
-        if (!partFileMap.has(baseName)) partFileMap.set(baseName, [])
-        partFileMap.get(baseName)!.push(`Fonts/${item.name}`)
-      }
-    }
-    for (const item of contents) {
-      const partMatch = item.name.match(/^(.+)\.part\d+\.\w+$/)
-      if (partMatch && manifestFiles.has(partMatch[1])) {
-        if (!partFileMap.has(partMatch[1])) partFileMap.set(partMatch[1], [])
-        partFileMap.get(partMatch[1])!.push(`Fonts/${item.name}`)
-      }
-    }
-
-    fonts.value = contents
-      .filter((item: any) => {
-        if (item.type !== 'file') return false
-        if (item.name.endsWith('.manifest.json')) return false
-        const baseName = item.name.replace(/\.part\d+\.\w+$/, '')
-        if (baseName !== item.name && manifestFiles.has(baseName)) return false
-        return true
-      })
-      .map((item: any) => {
-        const baseName = item.name.replace(/\.\w+$/, '')
-        return {
-          name: item.name,
-          path: `Fonts/${item.name}`,
-          size: item.size,
-          downloadUrl: downloadUrl(`Fonts/${item.name}`),
-          isManifest: manifestFiles.has(baseName),
-          partPaths: [],
+    const ghContents = await getContents('Fonts')
+    if (ghContents && Array.isArray(ghContents)) {
+      for (const item of ghContents) {
+        if (item.type !== 'file') continue
+        const exists = fonts.value.some(f => f.name === item.name)
+        if (!exists) {
+          fonts.value.push({
+            name: item.name,
+            key: `Fonts/${item.name}`,
+            size: item.size,
+            downloadUrl: downloadUrl(`Fonts/${item.name}`),
+          })
         }
-      })
-
-    for (const manifest of manifestFiles) {
-      const existing = fonts.value.find((f) => f.name.startsWith(manifest))
-      if (!existing) {
-        fonts.value.push({
-          name: `${manifest} (分片)`,
-          path: `Fonts/${manifest}.manifest.json`,
-          size: 0,
-          downloadUrl: downloadUrl(`Fonts/${manifest}.manifest.json`),
-          isManifest: true,
-          partPaths: partFileMap.get(manifest) || [`Fonts/${manifest}.manifest.json`],
-        })
-      } else {
-        existing.partPaths = partFileMap.get(manifest) || []
       }
     }
 
@@ -236,7 +201,7 @@ function openLinkModal(font: FontItem) {
 
 function batchLink() {
   if (checkedFonts.value.length === 0) return
-  const first = fonts.value.find(f => f.path === checkedFonts.value[0])
+  const first = fonts.value.find(f => f.key === checkedFonts.value[0])
   if (first) {
     selectedFont.value = first
     linkForm.value = { year: null, anime: null }
@@ -246,13 +211,12 @@ function batchLink() {
 
 async function doDeleteFont(font: FontItem) {
   try {
-    const allPaths = font.isManifest && font.partPaths.length > 0
-      ? font.partPaths
-      : [font.path]
-    for (const p of allPaths) {
-      await deleteFile(p, `chore: 删除字体 ${font.name}`)
+    if (font.key.startsWith('fonts/')) {
+      await deleteFontFromR2(font.key)
+    } else {
+      await deleteFile(font.key, `chore: 删除字体 ${font.name}`)
     }
-    fonts.value = fonts.value.filter(f => f.path !== font.path)
+    fonts.value = fonts.value.filter(f => f.key !== font.key)
     message.success(`已删除 ${font.name}`)
   } catch (err: any) {
     message.error(`删除失败: ${err.message}`)
@@ -261,18 +225,17 @@ async function doDeleteFont(font: FontItem) {
 
 async function doBatchDelete() {
   try {
-    for (const path of checkedFonts.value) {
-      const font = fonts.value.find(f => f.path === path)
+    for (const key of checkedFonts.value) {
+      const font = fonts.value.find(f => f.key === key)
       if (font) {
-        const allPaths = font.isManifest && font.partPaths.length > 0
-          ? font.partPaths
-          : [font.path]
-        for (const p of allPaths) {
-          await deleteFile(p, `chore: 删除字体 ${font.name}`)
+        if (font.key.startsWith('fonts/')) {
+          await deleteFontFromR2(font.key)
+        } else {
+          await deleteFile(font.key, `chore: 删除字体 ${font.name}`)
         }
       }
     }
-    fonts.value = fonts.value.filter(f => !checkedFonts.value.includes(f.path))
+    fonts.value = fonts.value.filter(f => !checkedFonts.value.includes(f.key))
     checkedFonts.value = []
     confirmBatchDelete.value = false
     message.success('批量删除完成')
@@ -304,7 +267,6 @@ async function linkFontToAnime() {
     const parsed = parseAnimeReadme(readmeContent)
 
     const fontName = selectedFont.value.name
-    const fontPath = selectedFont.value.path
     const fontDl = selectedFont.value.downloadUrl
 
     const alreadyExists = parsed.fonts.some((f) => f.name === fontName)
@@ -314,7 +276,7 @@ async function linkFontToAnime() {
       return
     }
 
-    parsed.fonts.push({ name: fontName, path: fontPath, downloadUrl: fontDl })
+    parsed.fonts.push({ name: fontName, path: `Fonts/${fontName}`, downloadUrl: fontDl })
 
     const contents = await getContents(basePath)
     const assFiles = (contents || []).filter((f: any) => f.name.endsWith('.ass'))

@@ -148,69 +148,6 @@ export async function uploadFiles(
   await updateRef(newCommitSha, branch)
 }
 
-export async function uploadLargeFile(
-  path: string,
-  fileContent: ArrayBuffer,
-  message: string,
-  branch = 'main'
-): Promise<void> {
-  const CHUNK_SIZE = 20 * 1024 * 1024
-  const totalSize = fileContent.byteLength
-
-  if (totalSize <= CHUNK_SIZE) {
-    const base64 = arrayBufferToBase64(fileContent)
-    await uploadFiles([{ path, content: base64, encoding: 'base64' }], message, branch)
-    return
-  }
-
-  const ext = path.substring(path.lastIndexOf('.'))
-  const basePath = path.substring(0, path.lastIndexOf('.'))
-  const chunks: Array<{ path: string; content: string; encoding: 'utf-8' | 'base64' }> = []
-  let offset = 0
-  let partIndex = 1
-
-  while (offset < totalSize) {
-    const end = Math.min(offset + CHUNK_SIZE, totalSize)
-    const chunk = fileContent.slice(offset, end)
-    const base64 = arrayBufferToBase64(chunk)
-    chunks.push({
-      path: `${basePath}.part${partIndex}${ext}`,
-      content: base64,
-      encoding: 'base64',
-    })
-    offset = end
-    partIndex++
-  }
-
-  const manifest = {
-    originalName: path.split('/').pop(),
-    totalSize,
-    parts: chunks.map((c, i) => ({
-      file: c.path.split('/').pop(),
-      size: i < chunks.length - 1 ? CHUNK_SIZE : totalSize % CHUNK_SIZE || CHUNK_SIZE,
-    })),
-  }
-
-  chunks.push({
-    path: `${basePath}.manifest.json`,
-    content: JSON.stringify(manifest, null, 2),
-    encoding: 'utf-8',
-  })
-
-  await uploadFiles(chunks, message, branch)
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  const chunkSize = 8192
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length))
-    binary += String.fromCharCode(...chunk)
-  }
-  return btoa(binary)
-}
-
 export async function deleteFile(path: string, message: string, branch = 'main'): Promise<void> {
   const content = await getContents(path)
   if (!content) return

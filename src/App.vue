@@ -1,7 +1,10 @@
 <template>
   <n-config-provider>
     <n-message-provider>
-      <n-layout style="height: 100%">
+      <n-layout v-if="!isLoggedIn" style="height: 100%;">
+        <router-view />
+      </n-layout>
+      <n-layout v-else style="height: 100%;">
         <n-layout-header bordered style="padding: 0 24px; display: flex; align-items: center; height: 56px; background: #fff;">
           <div style="font-size: 18px; font-weight: 700; margin-right: 32px;">smzase_sub</div>
           <n-menu
@@ -11,28 +14,7 @@
             @update:value="onMenuSelect"
           />
           <div style="margin-left: auto;">
-            <n-popover trigger="click" placement="bottom-end">
-              <template #trigger>
-                <n-button size="small" :type="hasToken ? 'default' : 'warning'">
-                  {{ hasToken ? '已连接' : '设置 Token' }}
-                </n-button>
-              </template>
-              <div style="width: 320px;">
-                <n-input
-                  v-model:value="tokenInput"
-                  type="password"
-                  placeholder="输入 GitHub Personal Access Token"
-                  show-password-on="click"
-                />
-                <n-button
-                  style="margin-top: 8px; width: 100%;"
-                  type="primary"
-                  @click="saveToken"
-                >
-                  保存
-                </n-button>
-              </div>
-            </n-popover>
+            <n-button size="small" @click="handleLogout">退出</n-button>
           </div>
         </n-layout-header>
         <n-layout-content style="padding: 24px; max-width: 1200px; margin: 0 auto; width: 100%;">
@@ -44,20 +26,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { setToken, getToken } from './utils/github'
+import { setToken } from './utils/github'
+import { getSessionToken, clearSession, getGHToken } from './utils/api'
 
 const router = useRouter()
 const route = useRoute()
 
-const tokenInput = ref(getToken())
-const hasToken = computed(() => !!getToken())
+const isLoggedIn = ref(false)
 
 const currentRoute = computed(() => {
   if (route.path.startsWith('/upload')) return 'upload'
   if (route.path.startsWith('/subtitles')) return 'subtitles'
   if (route.path.startsWith('/fonts')) return 'fonts'
+  if (route.path.startsWith('/settings')) return 'settings'
   return 'upload'
 })
 
@@ -65,13 +48,37 @@ const menuOptions = [
   { label: '上传', key: 'upload' },
   { label: '字幕', key: 'subtitles' },
   { label: '字体', key: 'fonts' },
+  { label: '设置', key: 'settings' },
 ]
 
 function onMenuSelect(key: string) {
   router.push(`/${key}`)
 }
 
-function saveToken() {
-  setToken(tokenInput.value)
+function handleLogout() {
+  clearSession()
+  isLoggedIn.value = false
+  router.push('/login')
 }
+
+onMounted(async () => {
+  const session = getSessionToken()
+  if (!session) {
+    isLoggedIn.value = false
+    router.push('/login')
+    return
+  }
+
+  try {
+    const result = await getGHToken()
+    if (result.token) {
+      setToken(result.token)
+    }
+    isLoggedIn.value = true
+  } catch {
+    clearSession()
+    isLoggedIn.value = false
+    router.push('/login')
+  }
+})
 </script>
