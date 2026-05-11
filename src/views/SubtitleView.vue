@@ -35,19 +35,29 @@
                       <div v-if="animeDetail.coverUrl" style="margin-bottom: 12px;">
                         <n-image :src="animeDetail.coverUrl" width="200" />
                       </div>
-                      <n-descriptions bordered :column="2" size="small" style="margin-bottom: 12px;">
-                        <n-descriptions-item label="英文标题">{{ animeDetail.titleEn }}</n-descriptions-item>
-                        <n-descriptions-item label="中文名">{{ animeDetail.titleCn }}</n-descriptions-item>
-                      </n-descriptions>
 
                       <n-data-table
                         v-if="animeDetail.subtitles.length > 0"
                         :columns="subtitleColumns"
                         :data="animeDetail.subtitles"
+                        :row-key="(row: SubtitleFile) => row.path"
+                        :checked-row-keys="checkedSubtitles"
+                        @update:checked-row-keys="onCheckChange"
                         :pagination="false"
                         size="small"
                         style="margin-bottom: 12px;"
                       />
+
+                      <n-space v-if="checkedSubtitles.length > 0" justify="center" style="margin-bottom: 12px;">
+                        <n-text depth="3">已选 {{ checkedSubtitles.length }} 项</n-text>
+                        <n-button size="tiny" type="primary" @click="batchEdit">批量重新上传</n-button>
+                        <n-button size="tiny" type="error" @click="confirmBatchDelete = true">批量删除</n-button>
+                      </n-space>
+                      <n-space v-if="confirmBatchDelete" justify="center" style="margin-bottom: 12px;">
+                        <n-text type="error" style="font-size: 12px;">确认删除 {{ checkedSubtitles.length }} 个字幕?</n-text>
+                        <n-button size="tiny" type="error" @click="doBatchDelete">确认</n-button>
+                        <n-button size="tiny" @click="confirmBatchDelete = false">取消</n-button>
+                      </n-space>
 
                       <div v-if="animeDetail.fonts.length > 0">
                         <n-text strong style="display: block; margin-bottom: 8px;">使用字体</n-text>
@@ -67,16 +77,34 @@
         </n-collapse>
       </n-spin>
     </n-card>
+
+    <n-modal v-model:show="showEditModal" preset="card" title="重新上传字幕" style="width: 480px;">
+      <n-upload
+        :custom-request="handleEditUpload"
+        accept=".ass"
+        :show-file-list="false"
+        :max="1"
+      >
+        <n-upload-dragger>
+          <div style="padding: 16px 0; text-align: center;">
+            <n-text>点击或拖拽替换字幕文件</n-text>
+          </div>
+        </n-upload-dragger>
+      </n-upload>
+      <template #action>
+        <n-button @click="showEditModal = false">关闭</n-button>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
-import { NButton, useMessage } from 'naive-ui'
-import type { DataTableColumns } from 'naive-ui'
+import { ref, h, onMounted } from 'vue'
+import { NButton, NSpace, NPopconfirm, useMessage } from 'naive-ui'
+import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
-import { getContents, rawUrl, getToken, downloadUrl } from '../utils/github'
-import { parseAnimeReadme } from '../utils/readme'
+import { getContents, rawUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
+import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
 
 interface AnimeListItem {
   folder: string
@@ -91,17 +119,36 @@ const years = ref<string[]>([])
 const animeByYear = ref<Record<string, AnimeListItem[]>>({})
 const expandedAnime = ref('')
 const animeDetail = ref<AnimeInfo | null>(null)
+const checkedSubtitles = ref<string[]>([])
+const confirmBatchDelete = ref(false)
+const showEditModal = ref(false)
+const editingSubtitle = ref<SubtitleFile | null>(null)
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
-  { title: '集数', key: 'episode', width: 80, render: (row) => `E${String(row.episode).padStart(2, '0')}` },
+  {
+    type: 'selection',
+  },
+  { title: '集数', key: 'episode', width: 70, render: (row) => `E${String(row.episode).padStart(2, '0')}` },
   { title: '语言', key: 'lang', width: 80, render: (row) => row.lang === 'zh-hans' ? '简中' : row.lang === 'zh-hant' ? '繁中' : row.lang },
   { title: '文件名', key: 'name', ellipsis: { tooltip: true } },
   {
-    title: '操作', key: 'actions', width: 80,
-    render: (row) => h(NButton, {
-      size: 'tiny', type: 'primary', text: true,
-      onClick: () => window.open(row.downloadUrl || downloadUrl(row.path), '_blank'),
-    }, { default: () => '下载' }),
+    title: '操作', key: 'actions', width: 120,
+    render: (row) => h(NSpace, { size: 4 }, {
+      default: () => [
+        h(NButton, {
+          size: 'tiny', type: 'info', text: true,
+          onClick: () => openEditModal(row),
+        }, { default: () => '编辑' }),
+        h(NPopconfirm, {
+          onPositiveClick: () => doDelete(row),
+        }, {
+          trigger: () => h(NButton, {
+            size: 'tiny', type: 'error', text: true,
+          }, { default: () => '删除' }),
+          default: () => `确认删除 ${row.name}?`,
+        }),
+      ],
+    }),
   },
 ]
 
@@ -115,6 +162,95 @@ const fontRefColumns: DataTableColumns<FontRef> = [
     }, { default: () => '下载' }),
   },
 ]
+
+function onCheckChange(keys: string[]) {
+  checkedSubtitles.value = keys
+  confirmBatchDelete.value = false
+}
+
+function openEditModal(sub: SubtitleFile) {
+  editingSubtitle.value = sub
+  showEditModal.value = true
+}
+
+async function handleEditUpload({ file }: UploadCustomRequestOptions) {
+  const rawFile = file.file
+  if (!rawFile || !editingSubtitle.value || !animeDetail.value) return
+
+  try {
+    const content = await rawFile.arrayBuffer()
+    const base64 = arrayBufferToBase64(content)
+    await uploadFiles(
+      [{ path: editingSubtitle.value.path, content: base64, encoding: 'base64' }],
+      `fix: 重新上传 ${editingSubtitle.value.name}`
+    )
+    message.success('字幕已替换')
+    showEditModal.value = false
+    if (expandedAnime.value) {
+      const [y, f] = expandedAnime.value.split('/')
+      await toggleAnimeDetail(y, f)
+    }
+  } catch (err: any) {
+    message.error(`替换失败: ${err.message}`)
+  }
+}
+
+async function doDelete(sub: SubtitleFile) {
+  try {
+    await deleteFile(sub.path, `chore: 删除 ${sub.name}`)
+    message.success('已删除')
+    if (animeDetail.value) {
+      animeDetail.value.subtitles = animeDetail.value.subtitles.filter(s => s.path !== sub.path)
+      await updateReadme()
+    }
+  } catch (err: any) {
+    message.error(`删除失败: ${err.message}`)
+  }
+}
+
+async function batchEdit() {
+  if (checkedSubtitles.value.length === 0) return
+  const first = animeDetail.value?.subtitles.find(s => s.path === checkedSubtitles.value[0])
+  if (first) {
+    editingSubtitle.value = first
+    showEditModal.value = true
+  }
+}
+
+async function doBatchDelete() {
+  if (!animeDetail.value) return
+  try {
+    for (const path of checkedSubtitles.value) {
+      const sub = animeDetail.value.subtitles.find(s => s.path === path)
+      if (sub) {
+        await deleteFile(sub.path, `chore: 删除 ${sub.name}`)
+      }
+    }
+    animeDetail.value.subtitles = animeDetail.value.subtitles.filter(
+      s => !checkedSubtitles.value.includes(s.path)
+    )
+    checkedSubtitles.value = []
+    confirmBatchDelete.value = false
+    await updateReadme()
+    message.success('批量删除完成')
+  } catch (err: any) {
+    message.error(`批量删除失败: ${err.message}`)
+  }
+}
+
+async function updateReadme() {
+  if (!animeDetail.value || !expandedAnime.value) return
+  try {
+    const readmePath = `Anime subtitles/${animeDetail.value.year}/${animeDetail.value.titleEn}/README.md`
+    const readmeContent = generateAnimeReadme(animeDetail.value)
+    await uploadFiles(
+      [{ path: readmePath, content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' }],
+      `docs: 更新 README`
+    )
+  } catch {
+    // noop
+  }
+}
 
 async function loadData() {
   if (!getToken()) {
@@ -174,6 +310,8 @@ async function toggleAnimeDetail(year: string, folder: string) {
 
   expandedAnime.value = key
   detailLoading.value = true
+  checkedSubtitles.value = []
+  confirmBatchDelete.value = false
 
   try {
     const basePath = `Anime subtitles/${year}/${folder}`
@@ -184,6 +322,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
     let coverUrl = ''
     let languages: string[] = []
     let readmeFonts: FontRef[] = []
+    let subtitleType = 'bilingual'
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
@@ -196,6 +335,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
         coverUrl = parsed.coverUrl
         languages = parsed.languages
         readmeFonts = parsed.fonts
+        subtitleType = parsed.subtitleType || 'bilingual'
       }
     }
 
@@ -230,12 +370,24 @@ async function toggleAnimeDetail(year: string, folder: string) {
       languages,
       subtitles,
       fonts: readmeFonts,
+      subtitleType: subtitleType,
     }
   } catch (err: any) {
     message.error(`加载详情失败: ${err.message}`)
   } finally {
     detailLoading.value = false
   }
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 8192
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length))
+    binary += String.fromCharCode(...chunk)
+  }
+  return btoa(binary)
 }
 
 onMounted(() => {

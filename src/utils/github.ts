@@ -25,89 +25,98 @@ function headers(): Record<string, string> {
 }
 
 export function rawUrl(path: string, branch = 'main'): string {
-  return `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${encodeURIComponent(path).replace(/%2F/g, '/')}`
+  const segments = path.split('/')
+  const encoded = segments.map(s => encodeURIComponent(s)).join('/')
+  return `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${branch}/${encoded}`
 }
 
 export function downloadUrl(path: string, branch = 'main'): string {
   return rawUrl(path, branch)
 }
 
-export async function getContents(path: string): Promise<any> {
-  const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURIComponent(path).replace(/%2F/g, '/')}`
-  const res = await fetch(url, { headers: headers() })
+async function githubFetch(url: string, options?: RequestInit): Promise<Response> {
+  const res = await fetch(url, { ...options, headers: { ...headers(), ...(options?.headers || {}) } })
   if (!res.ok) {
-    if (res.status === 404) return null
-    throw new Error(`GitHub API error: ${res.status}`)
+    let detail = ''
+    try {
+      const body = await res.json()
+      detail = body.message || JSON.stringify(body)
+    } catch {
+      // noop
+    }
+    throw new Error(`GitHub API ${res.status}: ${detail || res.statusText}`)
   }
-  return res.json()
+  return res
+}
+
+export async function getContents(path: string): Promise<any> {
+  const segments = path.split('/')
+  const encoded = segments.map(s => encodeURIComponent(s)).join('/')
+  const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encoded}`
+  try {
+    const res = await githubFetch(url)
+    return await res.json()
+  } catch (err: any) {
+    if (err.message.includes('404')) return null
+    throw err
+  }
 }
 
 export async function getTree(treeSha: string, recursive = true): Promise<any> {
   const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/git/trees/${treeSha}${recursive ? '?recursive=1' : ''}`
-  const res = await fetch(url, { headers: headers() })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
-  return res.json()
+  const res = await githubFetch(url)
+  return await res.json()
 }
 
 export async function getRef(branch = 'main'): Promise<string> {
   const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/git/ref/heads/${branch}`
-  const res = await fetch(url, { headers: headers() })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
+  const res = await githubFetch(url)
   const data = await res.json()
   return data.object.sha
 }
 
 export async function getCommit(sha: string): Promise<any> {
   const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/git/commits/${sha}`
-  const res = await fetch(url, { headers: headers() })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
-  return res.json()
+  const res = await githubFetch(url)
+  return await res.json()
 }
 
 export async function createBlob(content: string, encoding: 'utf-8' | 'base64' = 'base64'): Promise<string> {
   const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/git/blobs`
-  const res = await fetch(url, {
+  const res = await githubFetch(url, {
     method: 'POST',
-    headers: headers(),
     body: JSON.stringify({ content, encoding }),
   })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
   const data = await res.json()
   return data.sha
 }
 
 export async function createTree(baseTree: string, tree: Array<{ path: string; mode: string; type: string; sha: string }>): Promise<string> {
   const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/git/trees`
-  const res = await fetch(url, {
+  const res = await githubFetch(url, {
     method: 'POST',
-    headers: headers(),
     body: JSON.stringify({ base_tree: baseTree, tree }),
   })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
   const data = await res.json()
   return data.sha
 }
 
 export async function createCommit(message: string, treeSha: string, parentSha: string): Promise<string> {
   const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/git/commits`
-  const res = await fetch(url, {
+  const res = await githubFetch(url, {
     method: 'POST',
-    headers: headers(),
     body: JSON.stringify({ message, tree: treeSha, parents: [parentSha] }),
   })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
   const data = await res.json()
   return data.sha
 }
 
 export async function updateRef(sha: string, branch = 'main'): Promise<void> {
   const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/git/refs/heads/${branch}`
-  const res = await fetch(url, {
+  await githubFetch(url, {
     method: 'PATCH',
-    headers: headers(),
-    body: JSON.stringify({ sha }),
+    body: JSON.stringify({ sha, force: true }),
   })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
 }
 
 export async function uploadFiles(
@@ -201,11 +210,11 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 export async function deleteFile(path: string, message: string, branch = 'main'): Promise<void> {
   const content = await getContents(path)
   if (!content) return
-  const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURIComponent(path).replace(/%2F/g, '/')}`
-  const res = await fetch(url, {
+  const segments = path.split('/')
+  const encoded = segments.map(s => encodeURIComponent(s)).join('/')
+  const url = `${API_BASE}/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encoded}`
+  await githubFetch(url, {
     method: 'DELETE',
-    headers: headers(),
     body: JSON.stringify({ message, sha: content.sha, branch }),
   })
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
 }

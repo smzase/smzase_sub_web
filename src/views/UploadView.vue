@@ -37,7 +37,7 @@
             <n-text>当前:</n-text>
             <n-tag type="info" size="small">{{ currentAnimeLabel }}</n-tag>
             <n-tag v-for="lang in detectedLanguages" :key="lang" size="small">
-              {{ lang === 'zh-hans' ? '简中' : lang === 'zh-hant' ? '繁中' : lang }}
+              {{ lang === 'zh-hans' ? (template.subtitleType === 'bilingual' ? '简日双语' : '简中') : lang === 'zh-hant' ? (template.subtitleType === 'bilingual' ? '繁日雙語' : '繁中') : lang }}
             </n-tag>
           </n-space>
 
@@ -163,6 +163,12 @@
             <n-form-item label="封面图链接">
               <n-input v-model:value="template.coverUrl" placeholder="https://..." />
             </n-form-item>
+            <n-form-item label="字幕类型">
+              <n-radio-group v-model:value="template.subtitleType">
+                <n-radio value="bilingual">中日双语</n-radio>
+                <n-radio value="monolingual">单语</n-radio>
+              </n-radio-group>
+            </n-form-item>
             <n-form-item label="字幕语言">
               <n-text depth="3">上传文件时自动从文件名识别 (.zh-hans. / .zh-hant.)</n-text>
             </n-form-item>
@@ -180,7 +186,7 @@
                 <template #header>{{ t.name || t.titleEn }}</template>
                 <template #description>
                   <n-text depth="3" style="font-size: 12px;">
-                    [{{ t.groupTag }}] {{ t.titleEn }} / {{ t.titleCn }} - {{ t.year }} S{{ String(t.season).padStart(2, '0') }}
+                    [{{ t.groupTag }}] {{ t.titleEn }} / {{ t.titleCn }} - {{ t.year }} S{{ String(t.season).padStart(2, '0') }} | {{ t.subtitleType === 'bilingual' ? '中日双语' : '单语' }}
                   </n-text>
                 </template>
               </n-thing>
@@ -200,13 +206,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted, onUnmounted } from 'vue'
+import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { NTag, NButton, NSpace, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import type { UploadTemplate } from '../types'
+import type { UploadTemplate, SubtitleFile } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
-import { uploadFiles, uploadLargeFile, getToken, getContents, rawUrl } from '../utils/github'
-import { generateAnimeReadme, generateYearReadme, parseAnimeReadme } from '../utils/readme'
+import { uploadFiles, uploadLargeFile, getToken, getContents, rawUrl, downloadUrl } from '../utils/github'
+import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
   id: string
@@ -220,6 +226,7 @@ interface QueueItem {
 }
 
 const TEMPLATE_STORAGE_KEY = 'smzase_saved_templates'
+const CURRENT_TEMPLATE_KEY = 'smzase_current_template'
 
 const message = useMessage()
 const uploadTab = ref('subtitle')
@@ -250,6 +257,7 @@ const template = ref<UploadTemplate>({
   year: new Date().getFullYear().toString(),
   coverUrl: '',
   languages: [],
+  subtitleType: 'bilingual',
 })
 
 const subtitleQueue = ref<QueueItem[]>([])
@@ -338,6 +346,19 @@ function loadSavedTemplates() {
   } catch {
     savedTemplates.value = []
   }
+  try {
+    const raw = localStorage.getItem(CURRENT_TEMPLATE_KEY)
+    if (raw) {
+      const saved = JSON.parse(raw)
+      template.value = { ...template.value, ...saved }
+    }
+  } catch {
+    // noop
+  }
+}
+
+function persistCurrentTemplate() {
+  localStorage.setItem(CURRENT_TEMPLATE_KEY, JSON.stringify(template.value))
 }
 
 function persistTemplates() {
@@ -459,6 +480,7 @@ async function onAnimeSelect(animeName: string) {
           year: selectedYear.value,
           coverUrl: parsed.coverUrl,
           languages: parsed.languages,
+          subtitleType: parsed.subtitleType || 'bilingual',
         }
         detectedLanguages.value = parsed.languages
       } else {
@@ -602,6 +624,50 @@ function processFontFiles(files: File[]) {
   }
 }
 
+async function fetchExistingSubtitles(): Promise<SubtitleFile[]> {
+  if (!selectedYear.value || !template.value.titleEn) return []
+  const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
+  try {
+    const contents = await getContents(basePath)
+    if (!contents || !Array.isArray(contents)) return []
+    return contents
+      .filter((f: any) => f.name.endsWith('.ass'))
+      .map((f: any) => {
+        const epMatch = f.name.match(/E(\d+)/)
+        const langMatch = f.name.match(/\.(zh-hans|zh-hant)\./)
+        return {
+          name: f.name,
+          path: `${basePath}/${f.name}`,
+          episode: epMatch ? parseInt(epMatch[1], 10) : 0,
+          season: template.value.season,
+          lang: langMatch ? langMatch[1] : '',
+          downloadUrl: downloadUrl(`${basePath}/${f.name}`),
+        }
+      })
+  } catch {
+    return []
+  }
+}
+
+async function fetchExistingReadmeInfo(): Promise<{ fonts: any[]; coverUrl: string; titleCn: string }> {
+  if (!selectedYear.value || !template.value.titleEn) return { fonts: [], coverUrl: '', titleCn: '' }
+  const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
+  try {
+    const readmeUrl = rawUrl(`${basePath}/README.md`)
+    const res = await fetch(readmeUrl)
+    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '' }
+    const text = await res.text()
+    const parsed = parseAnimeReadme(text)
+    return {
+      fonts: parsed.fonts,
+      coverUrl: parsed.coverUrl,
+      titleCn: parsed.titleCn,
+    }
+  } catch {
+    return { fonts: [], coverUrl: '', titleCn: '' }
+  }
+}
+
 async function commitSubtitles() {
   if (!getToken()) {
     message.error('请先设置 GitHub Token')
@@ -617,7 +683,7 @@ async function commitSubtitles() {
       files.push({ path: item.path, content: base64, encoding: 'base64' })
     }
 
-    const episodes = subtitleQueue.value.map((item) => {
+    const newEpisodes: SubtitleFile[] = subtitleQueue.value.map((item) => {
       const parsed = parseOriginalName(item.originalName)!
       return {
         name: item.newName,
@@ -625,19 +691,33 @@ async function commitSubtitles() {
         episode: parsed.episode,
         season: template.value.season,
         lang: parsed.lang,
-        downloadUrl: '',
+        downloadUrl: downloadUrl(item.path),
       }
     })
+
+    const existingSubs = await fetchExistingSubtitles()
+    const allSubs = mergeSubtitles(existingSubs, newEpisodes)
+
+    const existingInfo = await fetchExistingReadmeInfo()
+    const coverUrl = template.value.coverUrl || existingInfo.coverUrl
+    const titleCn = template.value.titleCn || existingInfo.titleCn
+    const fonts = existingInfo.fonts
+
+    const allLanguages = new Set<string>()
+    for (const sub of allSubs) {
+      if (sub.lang) allLanguages.add(sub.lang)
+    }
 
     const animeInfo = {
       year: template.value.year,
       folder: template.value.titleEn,
       titleEn: template.value.titleEn,
-      titleCn: template.value.titleCn,
-      coverUrl: template.value.coverUrl,
-      languages: detectedLanguages.value,
-      subtitles: episodes,
-      fonts: [],
+      titleCn,
+      coverUrl,
+      languages: Array.from(allLanguages),
+      subtitles: allSubs,
+      fonts,
+      subtitleType: template.value.subtitleType,
     }
 
     const readmePath = `Anime subtitles/${template.value.year}/${template.value.titleEn}/README.md`
@@ -646,16 +726,25 @@ async function commitSubtitles() {
 
     const yearReadmePath = `Anime subtitles/${template.value.year}/README.md`
     const yearReadme = generateYearReadme(template.value.year, [
-      { titleEn: template.value.titleEn, titleCn: template.value.titleCn },
+      { titleEn: template.value.titleEn, titleCn },
     ])
     files.push({ path: yearReadmePath, content: btoa(unescape(encodeURIComponent(yearReadme))), encoding: 'base64' })
 
-    await uploadFiles(files, `[smzase] 上传 ${template.value.titleEn} 字幕`)
+    const epList = [...new Set(newEpisodes.map(e => e.episode))].sort((a, b) => a - b)
+    const langLabels = detectedLanguages.value.map(l =>
+      l === 'zh-hans' ? (template.value.subtitleType === 'bilingual' ? '简日双语' : '简中') :
+      l === 'zh-hant' ? (template.value.subtitleType === 'bilingual' ? '繁日雙語' : '繁中') : l
+    ).join(' ')
+    const epStr = epList.map(e => `EP${String(e).padStart(2, '0')}`).join(', ')
+    const commitTitleCn = titleCn || template.value.titleEn
+    await uploadFiles(files, `[${commitTitleCn}] ${epStr} ${langLabels}`)
 
     for (const item of subtitleQueue.value) {
       item.status = 'done'
     }
     message.success('字幕上传成功')
+    subtitleQueue.value = []
+    detectedLanguages.value = []
   } catch (err: any) {
     for (const item of subtitleQueue.value) {
       if (item.status === 'uploading') {
@@ -680,12 +769,12 @@ async function commitFonts() {
       item.status = 'uploading'
       try {
         if (item.size > 25 * 1024 * 1024) {
-          await uploadLargeFile(item.path, item.content, `[smzase] 上传字体 ${item.originalName}`)
+          await uploadLargeFile(item.path, item.content, `feat: add font ${item.originalName}`)
         } else {
           const base64 = arrayBufferToBase64(item.content)
           await uploadFiles(
             [{ path: item.path, content: base64, encoding: 'base64' }],
-            `[smzase] 上传字体 ${item.originalName}`
+            `feat: add font ${item.originalName}`
           )
         }
         item.status = 'done'
@@ -695,6 +784,7 @@ async function commitFonts() {
       }
     }
     message.success('字体上传完成')
+    fontQueue.value = []
   } finally {
     uploading.value = false
   }
@@ -716,6 +806,10 @@ onMounted(() => {
   loadSavedTemplates()
   if (getToken()) loadYears()
 })
+
+watch(template, () => {
+  persistCurrentTemplate()
+}, { deep: true })
 
 onUnmounted(() => {
   document.removeEventListener('paste', onPaste)

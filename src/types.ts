@@ -7,6 +7,7 @@ export interface AnimeInfo {
   languages: string[]
   subtitles: SubtitleFile[]
   fonts: FontRef[]
+  subtitleType: string
 }
 
 export interface SubtitleFile {
@@ -41,6 +42,7 @@ export interface UploadTemplate {
   year: string
   coverUrl: string
   languages: string[]
+  subtitleType: string
 }
 
 export interface RepoTreeItem {

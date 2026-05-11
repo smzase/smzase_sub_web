@@ -1,9 +1,9 @@
-import type { AnimeInfo, FontRef } from '../types'
+import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
 import { downloadUrl } from './github'
 
 export function generateYearReadme(year: string, animeList: Array<{ titleEn: string; titleCn: string }>): string {
   let md = `# ${year}\n\n`
-  md += `| 英文/罗马音标题 | 中文名 |\n`
+  md += `| 标题 | 中文名 |\n`
   md += `| --- | --- |\n`
   for (const anime of animeList) {
     md += `| [${anime.titleEn}](./${anime.titleEn}/) | ${anime.titleCn} |\n`
@@ -18,32 +18,47 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `![${anime.titleEn}](${anime.coverUrl})\n\n`
   }
 
-  md += `# ${anime.titleEn}\n\n`
-  md += `**中文名:** ${anime.titleCn}\n\n`
-
   if (anime.languages.length > 0) {
     md += `## 字幕语言\n\n`
     for (const lang of anime.languages) {
-      const langLabel = lang === 'zh-hans' ? '简体中文' : lang === 'zh-hant' ? '繁体中文' : lang
-      md += `- ${langLabel}\n`
+      if (lang === 'zh-hans') {
+        md += `- \`Zh-hans\` 为 ${anime.subtitleType === 'bilingual' ? '简日双语' : '简体中文'}\n`
+      } else if (lang === 'zh-hant') {
+        md += `- \`Zh-hant\` 为 ${anime.subtitleType === 'bilingual' ? '繁日雙語' : '繁體中文'}\n`
+      } else {
+        md += `- \`${lang}\`\n`
+      }
     }
     md += `\n`
   }
 
   if (anime.subtitles.length > 0) {
     md += `## 字幕列表\n\n`
-    md += `| 集数 | 语言 | 文件 | 下载 |\n`
-    md += `| --- | --- | --- | --- |\n`
+    md += `| 集数 | 简体下载 | 繁體下載 |\n`
+    md += `| --- | --- | --- |\n`
 
-    const sorted = [...anime.subtitles].sort((a, b) => {
-      if (a.episode !== b.episode) return a.episode - b.episode
-      return a.lang.localeCompare(b.lang)
-    })
+    const episodeMap = new Map<number, { zhHans?: SubtitleFile; zhHant?: SubtitleFile }>()
+    for (const sub of anime.subtitles) {
+      if (!episodeMap.has(sub.episode)) {
+        episodeMap.set(sub.episode, {})
+      }
+      const ep = episodeMap.get(sub.episode)!
+      if (sub.lang === 'zh-hans') ep.zhHans = sub
+      else if (sub.lang === 'zh-hant') ep.zhHant = sub
+    }
 
-    for (const sub of sorted) {
-      const langLabel = sub.lang === 'zh-hans' ? '简中' : sub.lang === 'zh-hant' ? '繁中' : sub.lang
-      const dl = sub.downloadUrl || downloadUrl(sub.path)
-      md += `| E${String(sub.episode).padStart(2, '0')} | ${langLabel} | ${sub.name} | [下载](${dl}) |\n`
+    const sortedEpisodes = Array.from(episodeMap.keys()).sort((a, b) => a - b)
+
+    for (const epNum of sortedEpisodes) {
+      const ep = episodeMap.get(epNum)!
+      const epLabel = `E${String(epNum).padStart(2, '0')}`
+      const hansCell = ep.zhHans
+        ? `[下载](${ep.zhHans.downloadUrl || downloadUrl(ep.zhHans.path)})`
+        : '-'
+      const hantCell = ep.zhHant
+        ? `[下载](${ep.zhHant.downloadUrl || downloadUrl(ep.zhHant.path)})`
+        : '-'
+      md += `| ${epLabel} | ${hansCell} | ${hantCell} |\n`
     }
     md += `\n`
   }
@@ -67,12 +82,16 @@ export function parseAnimeReadme(content: string): {
   titleCn: string
   languages: string[]
   fonts: FontRef[]
+  subtitles: SubtitleFile[]
+  subtitleType: string
 } {
   const result = {
     coverUrl: '',
     titleCn: '',
     languages: [] as string[],
     fonts: [] as FontRef[],
+    subtitles: [] as SubtitleFile[],
+    subtitleType: 'bilingual',
   }
 
   const coverMatch = content.match(/!\[.*?\]\((.*?)\)/)
@@ -87,14 +106,32 @@ export function parseAnimeReadme(content: string): {
 
   const langSection = content.match(/## 字幕语言\n\n([\s\S]*?)(?=\n##|$)/)
   if (langSection) {
-    const langLines = langSection[1].match(/^- (.+)$/gm)
+    const langLines = langSection[1].match(/^- .+$/gm)
     if (langLines) {
-      result.languages = langLines.map(l => {
-        const text = l.replace(/^- /, '').trim()
-        if (text === '简体中文') return 'zh-hans'
-        if (text === '繁体中文') return 'zh-hant'
-        return text
-      })
+      for (const line of langLines) {
+        const text = line.replace(/^- /, '').trim()
+        if (text.includes('Zh-hans') || text.includes('zh-hans')) {
+          result.languages.push('zh-hans')
+          if (text.includes('双语') || text.includes('雙語')) result.subtitleType = 'bilingual'
+        } else if (text.includes('Zh-hant') || text.includes('zh-hant')) {
+          result.languages.push('zh-hant')
+        } else if (text === '简体中文' || text === '简中') {
+          result.languages.push('zh-hans')
+          result.subtitleType = 'monolingual'
+        } else if (text === '繁體中文' || text === '繁体中文' || text === '繁中') {
+          result.languages.push('zh-hant')
+          result.subtitleType = 'monolingual'
+        }
+      }
+    }
+  }
+
+  const subSection = content.match(/## 字幕列表\n\n[\s\S]*?\n((?:\|[^|]+\|\n)+)/)
+  if (subSection) {
+    const rows = subSection[1].trim().split('\n')
+    for (const row of rows) {
+      const cols = row.split('|').map(c => c.trim()).filter(c => c)
+      if (cols.length >= 2) continue
     }
   }
 
@@ -118,4 +155,18 @@ export function parseAnimeReadme(content: string): {
   }
 
   return result
+}
+
+export function mergeSubtitles(
+  existing: SubtitleFile[],
+  newSubs: SubtitleFile[]
+): SubtitleFile[] {
+  const map = new Map<string, SubtitleFile>()
+  for (const s of existing) {
+    map.set(`${s.episode}-${s.lang}`, s)
+  }
+  for (const s of newSubs) {
+    map.set(`${s.episode}-${s.lang}`, s)
+  }
+  return Array.from(map.values())
 }
