@@ -23,11 +23,10 @@ function parseFontName(buffer: ArrayBuffer): string {
     )
     if (tag === 'name') {
       const tableOffset = view.getUint32(offset + 8)
-      const tableLength = view.getUint32(offset + 12)
       if (tableOffset + 6 > buffer.byteLength) break
-      const format = view.getUint16(tableOffset)
       const count = view.getUint16(tableOffset + 2)
       const stringOffset = view.getUint16(tableOffset + 4)
+      const candidates: string[] = []
       for (let j = 0; j < count; j++) {
         const recOffset = tableOffset + 6 + j * 12
         if (recOffset + 12 > buffer.byteLength) break
@@ -40,18 +39,26 @@ function parseFontName(buffer: ArrayBuffer): string {
         const strStart = tableOffset + stringOffset + nameOffset
         if (strStart + length > buffer.byteLength) continue
         const nameBytes = new Uint8Array(buffer, strStart, length)
+        let str = ''
         if (platformID === 3 && encodingID === 1) {
-          let str = ''
           for (let k = 0; k < nameBytes.length; k += 2) {
             str += String.fromCharCode((nameBytes[k] << 8) | nameBytes[k + 1])
           }
-          return str
+        } else if (platformID === 1 && encodingID === 0) {
+          str = String.fromCharCode(...nameBytes)
+        } else if (platformID === 0) {
+          for (let k = 0; k < nameBytes.length; k += 2) {
+            str += String.fromCharCode((nameBytes[k] << 8) | nameBytes[k + 1])
+          }
         }
-        if (platformID === 1 && encodingID === 0) {
-          return String.fromCharCode(...nameBytes)
-        }
+        if (str) candidates.push(str)
       }
-      break
+      const hasCjk = (s: string) => /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(s)
+      const cjk = candidates.find(hasCjk)
+      if (cjk) return cjk
+      const withSpace = candidates.find(s => s.includes(' ') || s.length > candidates[0]?.replace(/^[A-Z]+/, '').length)
+      if (withSpace && withSpace !== candidates[0]) return withSpace
+      return candidates[0] || ''
     }
   }
   return ''
