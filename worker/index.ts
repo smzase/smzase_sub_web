@@ -82,6 +82,21 @@ export default {
         return await handleApi(request, url, env)
       }
 
+      if (url.pathname.startsWith('/fonts/')) {
+        const key = decodeURIComponent(url.pathname.slice(1))
+        const object = await env.R2.get(key)
+        if (!object) {
+          return new Response('Not Found', { status: 404 })
+        }
+        return new Response(object.body, {
+          headers: {
+            'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+            'Content-Disposition': `attachment; filename="${object.customMetadata?.originalName || key.split('/').pop()}"`,
+            'Cache-Control': 'public, max-age=31536000',
+          },
+        })
+      }
+
       const response = await env.ASSETS.fetch(request)
       if (response.status === 404 && !url.pathname.startsWith('/assets/')) {
         const indexUrl = new URL('/', request.url)
