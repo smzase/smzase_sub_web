@@ -26,39 +26,50 @@ function parseFontName(buffer: ArrayBuffer): string {
       if (tableOffset + 6 > buffer.byteLength) break
       const count = view.getUint16(tableOffset + 2)
       const stringOffset = view.getUint16(tableOffset + 4)
-      const candidates: string[] = []
+      const readStr = (recOff: number): string => {
+        const pID = view.getUint16(recOff)
+        const eID = view.getUint16(recOff + 2)
+        const nID = view.getUint16(recOff + 6)
+        const len = view.getUint16(recOff + 8)
+        const nOff = view.getUint16(recOff + 10)
+        const start = tableOffset + stringOffset + nOff
+        if (start + len > buffer.byteLength) return ''
+        const bytes = new Uint8Array(buffer, start, len)
+        let s = ''
+        if (pID === 3 && eID === 1) {
+          for (let k = 0; k < bytes.length; k += 2) s += String.fromCharCode((bytes[k] << 8) | bytes[k + 1])
+        } else if (pID === 1 && eID === 0) {
+          s = String.fromCharCode(...bytes)
+        } else if (pID === 0) {
+          for (let k = 0; k < bytes.length; k += 2) s += String.fromCharCode((bytes[k] << 8) | bytes[k + 1])
+        }
+        return s
+      }
+      const name4: string[] = []
+      const name1: string[] = []
+      const name16: string[] = []
       for (let j = 0; j < count; j++) {
         const recOffset = tableOffset + 6 + j * 12
         if (recOffset + 12 > buffer.byteLength) break
-        const platformID = view.getUint16(recOffset)
-        const encodingID = view.getUint16(recOffset + 2)
-        const nameID = view.getUint16(recOffset + 6)
-        const length = view.getUint16(recOffset + 8)
-        const nameOffset = view.getUint16(recOffset + 10)
-        if (nameID !== 4) continue
-        const strStart = tableOffset + stringOffset + nameOffset
-        if (strStart + length > buffer.byteLength) continue
-        const nameBytes = new Uint8Array(buffer, strStart, length)
-        let str = ''
-        if (platformID === 3 && encodingID === 1) {
-          for (let k = 0; k < nameBytes.length; k += 2) {
-            str += String.fromCharCode((nameBytes[k] << 8) | nameBytes[k + 1])
-          }
-        } else if (platformID === 1 && encodingID === 0) {
-          str = String.fromCharCode(...nameBytes)
-        } else if (platformID === 0) {
-          for (let k = 0; k < nameBytes.length; k += 2) {
-            str += String.fromCharCode((nameBytes[k] << 8) | nameBytes[k + 1])
-          }
-        }
-        if (str) candidates.push(str)
+        const nID = view.getUint16(recOffset + 6)
+        const s = readStr(recOffset)
+        if (!s) continue
+        if (nID === 4) name4.push(s)
+        else if (nID === 1) name1.push(s)
+        else if (nID === 16) name16.push(s)
       }
       const hasCjk = (s: string) => /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(s)
-      const cjk = candidates.find(hasCjk)
-      if (cjk) return cjk
-      const withSpace = candidates.find(s => s.includes(' ') || s.length > candidates[0]?.replace(/^[A-Z]+/, '').length)
-      if (withSpace && withSpace !== candidates[0]) return withSpace
-      return candidates[0] || ''
+      const cjk4 = name4.find(hasCjk)
+      if (cjk4) return cjk4
+      const cjk16 = name16.find(hasCjk)
+      if (cjk16) return cjk16
+      const cjk1 = name1.find(hasCjk)
+      if (cjk1) return cjk1
+      const readable4 = name4.find(s => s.includes(' '))
+      if (readable4) return readable4
+      if (name16.length > 0) return name16[0]
+      if (name1.length > 0) return name1[0]
+      return name4[0] || ''
     }
   }
   return ''
