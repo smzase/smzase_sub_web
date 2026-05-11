@@ -80,6 +80,9 @@ onMounted(async () => {
       setToken(result.token)
     }
     isLoggedIn.value = true
+    if (route.path === '/login') {
+      router.replace('/')
+    }
   } catch {
     clearSession()
     isLoggedIn.value = false

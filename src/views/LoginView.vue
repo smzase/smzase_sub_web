@@ -50,7 +50,7 @@ async function handleSubmit() {
     const result = await login(username.value, password.value)
     setSessionToken(result.token)
     message.success('登录成功')
-    window.location.reload()
+    window.location.href = '/'
   } catch (err: any) {
     message.error(err.message || '操作失败')
   } finally {
