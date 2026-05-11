@@ -7,7 +7,7 @@ directory = "./dist"
 
 [[kv_namespaces]]
 binding = "subKV"
-id = "subKV"
+id = "fe0e970234e14934b33ce96bdd98a5b6"
 
 [[r2_buckets]]
 binding = "R2"
