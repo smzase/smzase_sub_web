@@ -116,7 +116,7 @@ import { ref, h, onMounted } from 'vue'
 import { NButton, NSpace, NPopconfirm, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
-import { getContents, rawUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
+import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
 
 interface AnimeListItem {
@@ -373,8 +373,8 @@ async function toggleAnimeDetail(year: string, folder: string) {
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
-      const readmeUrl = rawUrl(`${basePath}/README.md`)
-      const res = await fetch(readmeUrl)
+      const rUrl = readmeUrl(`${basePath}/README.md`)
+        const res = await fetch(rUrl)
       if (res.ok) {
         const text = await res.text()
         const parsed = parseAnimeReadme(text)

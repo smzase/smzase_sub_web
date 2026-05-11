@@ -211,7 +211,7 @@ import { NTag, NButton, NSpace, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
-import { uploadFiles, uploadLargeFile, getToken, getContents, rawUrl, downloadUrl } from '../utils/github'
+import { uploadFiles, uploadLargeFile, getToken, getContents, readmeUrl, rawUrl, downloadUrl } from '../utils/github'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -653,8 +653,8 @@ async function fetchExistingReadmeInfo(): Promise<{ fonts: any[]; coverUrl: stri
   if (!selectedYear.value || !template.value.titleEn) return { fonts: [], coverUrl: '', titleCn: '' }
   const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
   try {
-    const readmeUrl = rawUrl(`${basePath}/README.md`)
-    const res = await fetch(readmeUrl)
+    const rUrl = readmeUrl(`${basePath}/README.md`)
+    const res = await fetch(rUrl)
     if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '' }
     const text = await res.text()
     const parsed = parseAnimeReadme(text)

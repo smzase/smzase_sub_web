@@ -34,6 +34,10 @@ export function downloadUrl(path: string, branch = 'main'): string {
   return rawUrl(path, branch)
 }
 
+export function readmeUrl(path: string, branch = 'main'): string {
+  return rawUrl(path, branch) + `?_t=${Date.now()}`
+}
+
 async function githubFetch(url: string, options?: RequestInit): Promise<Response> {
   const res = await fetch(url, { ...options, headers: { ...headers(), ...(options?.headers || {}) } })
   if (!res.ok) {

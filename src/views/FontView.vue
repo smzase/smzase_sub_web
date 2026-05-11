@@ -61,7 +61,7 @@
 import { ref, onMounted, h } from 'vue'
 import { NButton, NSpace, NTag, NPopconfirm, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import { getContents, downloadUrl, getToken, uploadFiles, rawUrl, deleteFile } from '../utils/github'
+import { getContents, downloadUrl, readmeUrl, getToken, uploadFiles, deleteFile } from '../utils/github'
 import { formatFileSize } from '../utils/rename'
 import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
 
@@ -71,6 +71,7 @@ interface FontItem {
   size: number
   downloadUrl: string
   isManifest: boolean
+  partPaths: string[]
 }
 
 const message = useMessage()
@@ -139,9 +140,20 @@ async function loadFonts() {
     }
 
     const manifestFiles = new Set<string>()
+    const partFileMap = new Map<string, string[]>()
     for (const item of contents) {
       if (item.name.endsWith('.manifest.json')) {
-        manifestFiles.add(item.name.replace('.manifest.json', ''))
+        const baseName = item.name.replace('.manifest.json', '')
+        manifestFiles.add(baseName)
+        if (!partFileMap.has(baseName)) partFileMap.set(baseName, [])
+        partFileMap.get(baseName)!.push(`Fonts/${item.name}`)
+      }
+    }
+    for (const item of contents) {
+      const partMatch = item.name.match(/^(.+)\.part\d+\.\w+$/)
+      if (partMatch && manifestFiles.has(partMatch[1])) {
+        if (!partFileMap.has(partMatch[1])) partFileMap.set(partMatch[1], [])
+        partFileMap.get(partMatch[1])!.push(`Fonts/${item.name}`)
       }
     }
 
@@ -161,6 +173,7 @@ async function loadFonts() {
           size: item.size,
           downloadUrl: downloadUrl(`Fonts/${item.name}`),
           isManifest: manifestFiles.has(baseName),
+          partPaths: [],
         }
       })
 
@@ -173,7 +186,10 @@ async function loadFonts() {
           size: 0,
           downloadUrl: downloadUrl(`Fonts/${manifest}.manifest.json`),
           isManifest: true,
+          partPaths: partFileMap.get(manifest) || [`Fonts/${manifest}.manifest.json`],
         })
+      } else {
+        existing.partPaths = partFileMap.get(manifest) || []
       }
     }
 
@@ -230,7 +246,12 @@ function batchLink() {
 
 async function doDeleteFont(font: FontItem) {
   try {
-    await deleteFile(font.path, `chore: 删除字体 ${font.name}`)
+    const allPaths = font.isManifest && font.partPaths.length > 0
+      ? font.partPaths
+      : [font.path]
+    for (const p of allPaths) {
+      await deleteFile(p, `chore: 删除字体 ${font.name}`)
+    }
     fonts.value = fonts.value.filter(f => f.path !== font.path)
     message.success(`已删除 ${font.name}`)
   } catch (err: any) {
@@ -243,7 +264,12 @@ async function doBatchDelete() {
     for (const path of checkedFonts.value) {
       const font = fonts.value.find(f => f.path === path)
       if (font) {
-        await deleteFile(font.path, `chore: 删除字体 ${font.name}`)
+        const allPaths = font.isManifest && font.partPaths.length > 0
+          ? font.partPaths
+          : [font.path]
+        for (const p of allPaths) {
+          await deleteFile(p, `chore: 删除字体 ${font.name}`)
+        }
       }
     }
     fonts.value = fonts.value.filter(f => !checkedFonts.value.includes(f.path))
@@ -267,9 +293,9 @@ async function linkFontToAnime() {
     const readmePath = `${basePath}/README.md`
 
     let readmeContent = ''
-    const readmeUrl = rawUrl(`${basePath}/README.md`)
+    const rUrl = readmeUrl(`${basePath}/README.md`)
     try {
-      const res = await fetch(readmeUrl)
+      const res = await fetch(rUrl)
       if (res.ok) readmeContent = await res.text()
     } catch {
       // noop
@@ -278,8 +304,8 @@ async function linkFontToAnime() {
     const parsed = parseAnimeReadme(readmeContent)
 
     const fontName = selectedFont.value.name
-    const fontPath = `Fonts/${fontName}`
-    const fontDl = downloadUrl(fontPath)
+    const fontPath = selectedFont.value.path
+    const fontDl = selectedFont.value.downloadUrl
 
     const alreadyExists = parsed.fonts.some((f) => f.name === fontName)
     if (alreadyExists) {
