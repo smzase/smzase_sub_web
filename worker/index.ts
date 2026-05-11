@@ -58,13 +58,17 @@ function parseFontName(buffer: ArrayBuffer): string {
         else if (nID === 1) name1.push(s)
         else if (nID === 16) name16.push(s)
       }
-      const hasCjk = (s: string) => /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(s)
-      const cjk4 = name4.find(hasCjk)
-      if (cjk4) return cjk4
-      const cjk16 = name16.find(hasCjk)
-      if (cjk16) return cjk16
-      const cjk1 = name1.find(hasCjk)
-      if (cjk1) return cjk1
+      const hasHan = (s: string) => /[\u4e00-\u9fff]/.test(s)
+      const hasKana = (s: string) => /[\u3040-\u309f\u30a0-\u30ff]/.test(s)
+      const hasHangul = (s: string) => /[\uac00-\ud7af]/.test(s)
+      const chineseName = [...name4, ...name16, ...name1].find(s => hasHan(s) && !hasKana(s))
+      if (chineseName) return chineseName
+      const hanName = [...name4, ...name16, ...name1].find(hasHan)
+      if (hanName) return hanName
+      const japaneseName = [...name4, ...name16, ...name1].find(hasKana)
+      if (japaneseName) return japaneseName
+      const koreanName = [...name4, ...name16, ...name1].find(hasHangul)
+      if (koreanName) return koreanName
       const readable4 = name4.find(s => s.includes(' '))
       if (readable4) return readable4
       if (name16.length > 0) return name16[0]
