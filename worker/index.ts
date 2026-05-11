@@ -60,8 +60,10 @@ async function verifyAuth(request: Request, env: Env): Promise<boolean> {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return false
   const token = authHeader.slice(7)
   try {
-    const sessionData = await env.subKV.get(`session:${token}`)
-    return !!sessionData
+    const raw = await env.subKV.get('session:active')
+    if (!raw) return false
+    const session = JSON.parse(raw)
+    return session.token === token
   } catch {
     return false
   }
@@ -124,7 +126,7 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
       const hashed = await hashPassword(body.password)
       if (creds.username === body.username && creds.password === hashed) {
         const sessionId = crypto.randomUUID()
-        await env.subKV.put(`session:${sessionId}`, JSON.stringify({ username: body.username }), { expirationTtl: 86400 * 7 })
+        await env.subKV.put('session:active', JSON.stringify({ username: body.username, token: sessionId }), { expirationTtl: 86400 * 7 })
         return jsonResponse({ token: sessionId })
       }
     } catch {
@@ -136,6 +138,11 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
   if (path === 'auth/status' && request.method === 'GET') {
     const existing = await env.subKV.get('auth:credentials')
     return jsonResponse({ configured: !!existing })
+  }
+
+  if (path === 'auth/logout' && request.method === 'POST') {
+    await env.subKV.delete('session:active')
+    return jsonResponse({ success: true })
   }
 
   if (!(await verifyAuth(request, env))) {
@@ -219,7 +226,8 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const listed = await env.R2.list({ prefix: 'fonts/' })
     const domain = (await env.subKV.get('config:r2_domain')) || ''
     const files = listed.objects.map(obj => {
-      const name = obj.key.replace('fonts/', '')
+      const rawName = obj.key.replace('fonts/', '')
+      const name = decodeURIComponent(rawName)
       return {
         name,
         key: obj.key,

@@ -29,7 +29,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { setToken } from './utils/github'
-import { getSessionToken, clearSession, getGHToken } from './utils/api'
+import { getSessionToken, clearSession, getGHToken, logout as apiLogout } from './utils/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -55,7 +55,12 @@ function onMenuSelect(key: string) {
   router.push(`/${key}`)
 }
 
-function handleLogout() {
+async function handleLogout() {
+  try {
+    await apiLogout()
+  } catch {
+    // noop
+  }
   clearSession()
   isLoggedIn.value = false
   router.push('/login')

@@ -56,6 +56,10 @@ export async function login(username: string, password: string): Promise<{ token
   })
 }
 
+export async function logout(): Promise<any> {
+  return apiFetch('auth/logout', { method: 'POST' })
+}
+
 export async function getGHToken(): Promise<{ token: string }> {
   return apiFetch('auth/token')
 }

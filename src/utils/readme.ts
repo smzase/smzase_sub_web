@@ -68,8 +68,8 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `| 字体名 | 下载 |\n`
     md += `| --- | --- |\n`
     for (const font of anime.fonts) {
-      const dl = font.downloadUrl || downloadUrl(font.path)
-      md += `| ${font.name} | [下载](${dl}) |\n`
+      const dl = font.downloadUrl || (font.path.startsWith('fonts/') ? '' : downloadUrl(font.path))
+      md += `| ${font.name} | ${dl ? `[下载](${dl})` : '-'} |\n`
     }
     md += `\n`
   }

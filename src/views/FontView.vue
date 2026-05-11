@@ -276,7 +276,11 @@ async function linkFontToAnime() {
       return
     }
 
-    parsed.fonts.push({ name: fontName, path: `Fonts/${fontName}`, downloadUrl: fontDl })
+    parsed.fonts.push({
+      name: fontName,
+      path: selectedFont.value.key.startsWith('fonts/') ? selectedFont.value.key : `Fonts/${fontName}`,
+      downloadUrl: fontDl,
+    })
 
     const contents = await getContents(basePath)
     const assFiles = (contents || []).filter((f: any) => f.name.endsWith('.ass'))
