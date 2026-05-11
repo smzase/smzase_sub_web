@@ -9,7 +9,13 @@
         <n-empty v-if="!loading && years.length === 0" description="暂无字幕数据" />
 
         <n-collapse v-if="years.length > 0" :default-expanded-names="years">
-          <n-collapse-item v-for="year in years" :key="year" :title="year + ' 年'" :name="year">
+          <n-collapse-item v-for="year in years" :key="year" :name="year">
+            <template #header>
+              <n-space align="center" :wrap="false" :size="8">
+                <span>{{ year }} 年</span>
+                <n-button size="tiny" :loading="yearReadmeLoading === year" @click.stop="refreshYearReadme(year)">更新README</n-button>
+              </n-space>
+            </template>
             <n-list bordered>
               <n-list-item v-for="anime in animeByYear[year]" :key="anime.folder">
                 <n-thing>
@@ -174,6 +180,7 @@ const showDeleteAnimeModal = ref(false)
 const deleteAnimeStep = ref(1)
 const deleteAnimeLoading = ref(false)
 const deleteAnimeTarget = ref<{ year: string; folder: string } | null>(null)
+const yearReadmeLoading = ref('')
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
   {
@@ -374,6 +381,18 @@ async function updateYearReadme(year: string) {
     )
   } catch {
     // noop
+  }
+}
+
+async function refreshYearReadme(year: string) {
+  yearReadmeLoading.value = year
+  try {
+    await updateYearReadme(year)
+    message.success(`${year} 年 README 已更新`)
+  } catch (err: any) {
+    message.error(`更新失败: ${err.message}`)
+  } finally {
+    yearReadmeLoading.value = ''
   }
 }
 

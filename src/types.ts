@@ -31,6 +31,7 @@ export interface FontRef {
   name: string
   path: string
   downloadUrl: string
+  displayName: string
 }
 
 export interface UploadTemplate {

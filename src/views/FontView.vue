@@ -80,6 +80,7 @@ interface FontItem {
   key: string
   size: number
   downloadUrl: string
+  fontName: string
 }
 
 const message = useMessage()
@@ -88,7 +89,7 @@ const linking = ref(false)
 const fonts = ref<FontItem[]>([])
 const searchKeyword = ref('')
 const showLinkModal = ref(false)
-const selectedFont = ref<FontItem | null>(null)
+const selectedFonts = ref<FontItem[]>([])
 const checkedFonts = ref<string[]>([])
 const confirmBatchDelete = ref(false)
 
@@ -103,12 +104,13 @@ const animeOptions = ref<SelectOption[]>([])
 const filteredFonts = computed(() => {
   const kw = searchKeyword.value.trim().toLowerCase()
   if (!kw) return fonts.value
-  return fonts.value.filter(f => f.name.toLowerCase().includes(kw))
+  return fonts.value.filter(f => f.name.toLowerCase().includes(kw) || f.fontName.toLowerCase().includes(kw))
 })
 
 const columns: DataTableColumns<FontItem> = [
   { type: 'selection' },
-  { title: '字体文件名', key: 'name', ellipsis: { tooltip: true } },
+  { title: '字体名', key: 'fontName', ellipsis: { tooltip: true } },
+  { title: '文件名', key: 'name', ellipsis: { tooltip: true } },
   { title: '大小', key: 'size', width: 120, render: (row) => formatFileSize(row.size) },
   {
     title: '操作', key: 'actions', width: 160,
@@ -153,6 +155,7 @@ async function loadFonts() {
             key: `Fonts/${item.name}`,
             size: item.size,
             downloadUrl: downloadUrl(`Fonts/${item.name}`),
+            fontName: item.name.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
           })
         }
       }
@@ -194,19 +197,18 @@ async function onYearChange(year: string) {
 }
 
 function openLinkModal(font: FontItem) {
-  selectedFont.value = font
+  selectedFonts.value = [font]
   linkForm.value = { year: null, anime: null }
   showLinkModal.value = true
 }
 
 function batchLink() {
   if (checkedFonts.value.length === 0) return
-  const first = fonts.value.find(f => f.key === checkedFonts.value[0])
-  if (first) {
-    selectedFont.value = first
-    linkForm.value = { year: null, anime: null }
-    showLinkModal.value = true
-  }
+  selectedFonts.value = checkedFonts.value
+    .map(key => fonts.value.find(f => f.key === key))
+    .filter((f): f is FontItem => !!f)
+  linkForm.value = { year: null, anime: null }
+  showLinkModal.value = true
 }
 
 async function doDeleteFont(font: FontItem) {
@@ -245,7 +247,7 @@ async function doBatchDelete() {
 }
 
 async function linkFontToAnime() {
-  if (!linkForm.value.year || !linkForm.value.anime || !selectedFont.value) {
+  if (!linkForm.value.year || !linkForm.value.anime || selectedFonts.value.length === 0) {
     message.warning('请选择年份和动画')
     return
   }
@@ -266,38 +268,48 @@ async function linkFontToAnime() {
 
     const parsed = parseAnimeReadme(readmeContent)
 
-    const fontName = selectedFont.value.name
-    let fontDl = selectedFont.value.downloadUrl
+    let r2Domain = ''
+    try {
+      const { domain } = await getR2Domain()
+      if (domain) r2Domain = domain.replace(/\/$/, '')
+    } catch {
+      // noop
+    }
 
-    if (selectedFont.value.key.startsWith('fonts/') && !fontDl) {
-      try {
-        const { domain } = await getR2Domain()
-        if (domain) {
-          fontDl = `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(fontName)}`
-        }
-      } catch {
-        // noop
+    const addedNames: string[] = []
+    const skippedNames: string[] = []
+
+    for (const font of selectedFonts.value) {
+      const alreadyExists = parsed.fonts.some((f) => f.name === font.name)
+      if (alreadyExists) {
+        skippedNames.push(font.name)
+        continue
       }
+
+      let fontDl = font.downloadUrl
+      if (font.key.startsWith('fonts/') && !fontDl && r2Domain) {
+        fontDl = `${r2Domain}/fonts/${encodeURIComponent(font.name)}`
+      }
+
+      if (font.key.startsWith('fonts/') && !fontDl) {
+        message.warning(`字体 ${font.name} 缺少下载链接，请先配置 R2 域名`)
+        continue
+      }
+
+      parsed.fonts.push({
+        name: font.name,
+        path: font.key.startsWith('fonts/') ? font.key : `Fonts/${font.name}`,
+        downloadUrl: fontDl,
+        displayName: font.fontName || font.name.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
+      })
+      addedNames.push(font.name)
     }
 
-    if (selectedFont.value.key.startsWith('fonts/') && !fontDl) {
-      message.warning('请先在设置中配置 R2 下载域名')
-      linking.value = false
-      return
-    }
-
-    const alreadyExists = parsed.fonts.some((f) => f.name === fontName)
-    if (alreadyExists) {
-      message.info('该字体已关联到此动画')
+    if (addedNames.length === 0) {
+      message.info(skippedNames.length > 0 ? '所选字体均已关联到此动画' : '没有可关联的字体')
       showLinkModal.value = false
       return
     }
-
-    parsed.fonts.push({
-      name: fontName,
-      path: selectedFont.value.key.startsWith('fonts/') ? selectedFont.value.key : `Fonts/${fontName}`,
-      downloadUrl: fontDl,
-    })
 
     const contents = await getContents(basePath)
     const assFiles = (contents || []).filter((f: any) => f.name.endsWith('.ass'))
@@ -329,10 +341,12 @@ async function linkFontToAnime() {
     const newReadme = generateAnimeReadme(animeInfo)
     await uploadFiles(
       [{ path: readmePath, content: btoa(unescape(encodeURIComponent(newReadme))), encoding: 'base64' }],
-      `feat: 关联字体 ${fontName} 到 ${linkForm.value.anime}`
+      `feat: 关联字体 ${addedNames.join(', ')} 到 ${linkForm.value.anime}`
     )
 
-    message.success(`已将 ${fontName} 关联到 ${linkForm.value.anime}`)
+    let msg = `已关联 ${addedNames.length} 个字体`
+    if (skippedNames.length > 0) msg += `，跳过 ${skippedNames.length} 个已关联`
+    message.success(msg)
     showLinkModal.value = false
   } catch (err: any) {
     message.error(`关联失败: ${err.message}`)

@@ -65,11 +65,18 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
 
   if (anime.fonts.length > 0) {
     md += `## 使用字体\n\n`
-    md += `| 字体名 | 下载 |\n`
+    md += `| 字体名 | 字体下载 |\n`
     md += `| --- | --- |\n`
-    for (const font of anime.fonts) {
+    const sortedFonts = [...anime.fonts].sort((a, b) => {
+      const na = (a.displayName || a.name).toLowerCase()
+      const nb = (b.displayName || b.name).toLowerCase()
+      return na.localeCompare(nb)
+    })
+    for (const font of sortedFonts) {
+      const displayName = font.displayName || font.name
       const dl = font.downloadUrl || (font.path.startsWith('fonts/') ? '' : downloadUrl(font.path))
-      md += `| ${font.name} | ${dl ? `[下载](${dl})` : '-'} |\n`
+      const fileName = font.name
+      md += `| ${displayName} | ${dl ? `[${fileName}](${dl})` : fileName} |\n`
     }
     md += `\n`
   }
@@ -141,13 +148,24 @@ export function parseAnimeReadme(content: string): {
     for (const row of rows) {
       const cols = row.split('|').filter(c => c.trim())
       if (cols.length >= 2) {
-        const name = cols[0].trim()
-        const linkMatch = cols[1].match(/\[下载\]\((.+?)\)/)
+        const displayName = cols[0].trim()
+        const linkMatch = cols[1].match(/\[(.+?)\]\((.+?)\)/)
         if (linkMatch) {
+          const fileName = linkMatch[1]
+          const dlUrl = linkMatch[2]
           result.fonts.push({
-            name,
-            path: `Fonts/${name}`,
-            downloadUrl: linkMatch[1],
+            name: fileName,
+            path: dlUrl.includes('/fonts/') ? `fonts/${fileName}` : `Fonts/${fileName}`,
+            downloadUrl: dlUrl,
+            displayName,
+          })
+        } else {
+          const fileName = cols[1].trim()
+          result.fonts.push({
+            name: fileName,
+            path: `Fonts/${fileName}`,
+            downloadUrl: '',
+            displayName,
           })
         }
       }

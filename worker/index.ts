@@ -6,6 +6,57 @@ interface Env {
 
 const ENCRYPTION_KEY = 'smzase_sub_enc_key_2026'
 
+function parseFontName(buffer: ArrayBuffer): string {
+  const view = new DataView(buffer)
+  if (buffer.byteLength < 12) return ''
+  const sfVersion = view.getUint32(0)
+  const isTtf = sfVersion === 0x00010000 || sfVersion === 0x74727565
+  const isOtf = sfVersion === 0x4F54544F
+  if (!isTtf && !isOtf) return ''
+  const numTables = view.getUint16(4)
+  for (let i = 0; i < numTables; i++) {
+    const offset = 12 + i * 16
+    if (offset + 16 > buffer.byteLength) break
+    const tag = String.fromCharCode(
+      view.getUint8(offset), view.getUint8(offset + 1),
+      view.getUint8(offset + 2), view.getUint8(offset + 3)
+    )
+    if (tag === 'name') {
+      const tableOffset = view.getUint32(offset + 8)
+      const tableLength = view.getUint32(offset + 12)
+      if (tableOffset + 6 > buffer.byteLength) break
+      const format = view.getUint16(tableOffset)
+      const count = view.getUint16(tableOffset + 2)
+      const stringOffset = view.getUint16(tableOffset + 4)
+      for (let j = 0; j < count; j++) {
+        const recOffset = tableOffset + 6 + j * 12
+        if (recOffset + 12 > buffer.byteLength) break
+        const platformID = view.getUint16(recOffset)
+        const encodingID = view.getUint16(recOffset + 2)
+        const nameID = view.getUint16(recOffset + 6)
+        const length = view.getUint16(recOffset + 8)
+        const nameOffset = view.getUint16(recOffset + 10)
+        if (nameID !== 4) continue
+        const strStart = tableOffset + stringOffset + nameOffset
+        if (strStart + length > buffer.byteLength) continue
+        const nameBytes = new Uint8Array(buffer, strStart, length)
+        if (platformID === 3 && encodingID === 1) {
+          let str = ''
+          for (let k = 0; k < nameBytes.length; k += 2) {
+            str += String.fromCharCode((nameBytes[k] << 8) | nameBytes[k + 1])
+          }
+          return str
+        }
+        if (platformID === 1 && encodingID === 0) {
+          return String.fromCharCode(...nameBytes)
+        }
+      }
+      break
+    }
+  }
+  return ''
+}
+
 async function encrypt(text: string): Promise<string> {
   const encoder = new TextEncoder()
   const data = encoder.encode(text)
@@ -208,13 +259,15 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const contentType = request.headers.get('Content-Type') || ''
     const fileName = decodeURIComponent(request.headers.get('X-File-Name') || 'unknown')
     const key = `fonts/${fileName}`
-    await env.R2.put(key, request.body!, {
+    const bodyBuffer = await request.arrayBuffer()
+    const fontName = parseFontName(bodyBuffer)
+    await env.R2.put(key, bodyBuffer, {
       httpMetadata: { contentType },
-      customMetadata: { originalName: fileName },
+      customMetadata: { originalName: fileName, fontName: fontName || fileName.replace(/\.(ttf|otf|ttc|woff2?)$/i, '') },
     })
     const domain = (await env.subKV.get('config:r2_domain')) || ''
     const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(fileName)}` : ''
-    return jsonResponse({ success: true, key, downloadUrl })
+    return jsonResponse({ success: true, key, downloadUrl, fontName })
   }
 
   if (path.startsWith('fonts/download/') && request.method === 'GET') {
@@ -243,11 +296,13 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const files = listed.objects.map(obj => {
       const rawName = obj.key.replace('fonts/', '')
       const name = decodeURIComponent(rawName)
+      const fontName = obj.customMetadata?.fontName || name.replace(/\.(ttf|otf|ttc|woff2?)$/i, '')
       return {
         name,
         key: obj.key,
         size: obj.size,
         downloadUrl: domain ? `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(name)}` : '',
+        fontName,
       }
     })
     return jsonResponse({ files })
