@@ -111,9 +111,16 @@ export function parseAnimeReadme(content: string): {
     result.coverUrl = coverMatch[1]
   }
 
-  const cnMatch = content.match(/^## (.+)$/m)
-  if (cnMatch) {
-    result.titleCn = cnMatch[1].trim()
+  const sectionHeadings = ['字幕语言', '字幕列表', '使用字体']
+  const cnMatches = content.match(/^## (.+)$/gm)
+  if (cnMatches) {
+    for (const m of cnMatches) {
+      const title = m.replace(/^## /, '').trim()
+      if (!sectionHeadings.includes(title)) {
+        result.titleCn = title
+        break
+      }
+    }
   }
 
   const langSection = content.match(/## 字幕语言\n\n([\s\S]*?)(?=\n##|$)/)
