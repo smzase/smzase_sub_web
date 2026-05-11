@@ -12,6 +12,21 @@ export function generateYearReadme(year: string, animeList: Array<{ titleEn: str
   return md
 }
 
+export function parseYearReadme(content: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  const rows = content.split('\n').filter(line => line.trim().startsWith('|'))
+  for (const row of rows) {
+    if (row.includes('---') || row.includes('标题')) continue
+    const cols = row.split('|').map(c => c.trim()).filter(c => c)
+    if (cols.length < 2) continue
+    const titleMatch = cols[0].match(/\[(.+?)\]\(.+?\)/)
+    const titleEn = titleMatch ? titleMatch[1] : cols[0]
+    const titleCn = cols[1]
+    if (titleEn && titleCn) result[titleEn] = titleCn
+  }
+  return result
+}
+
 export function generateAnimeReadme(anime: AnimeInfo): string {
   let md = ''
 

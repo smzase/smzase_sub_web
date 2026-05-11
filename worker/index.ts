@@ -314,6 +314,26 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ success: true })
   }
 
+  if (path === 'anime/names' && request.method === 'GET') {
+    const raw = await env.subKV.get('anime:names')
+    return jsonResponse({ names: raw ? JSON.parse(raw) : {} })
+  }
+
+  if (path === 'anime/names' && request.method === 'POST') {
+    const body = await request.json() as { year: string; titleEn: string; titleCn: string }
+    if (!body.year || !body.titleEn) return jsonResponse({ error: 'Missing fields' }, 400)
+    const raw = await env.subKV.get('anime:names')
+    const names = raw ? JSON.parse(raw) : {}
+    const key = `${body.year}/${body.titleEn}`
+    if (body.titleCn) {
+      names[key] = body.titleCn
+    } else {
+      delete names[key]
+    }
+    await env.subKV.put('anime:names', JSON.stringify(names))
+    return jsonResponse({ success: true })
+  }
+
   if (path === 'fonts/upload' && request.method === 'POST') {
     const contentType = request.headers.get('Content-Type') || ''
     const fileName = decodeURIComponent(request.headers.get('X-File-Name') || 'unknown')
