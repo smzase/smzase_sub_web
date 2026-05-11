@@ -9,12 +9,13 @@ smzase_sub 字幕仓库的统一管理网页端，基于 Vue 3 + Naive UI + Clou
 - 字体管理：字体上传至 Cloudflare R2 对象存储（绕过 GitHub 25MB 限制），支持关联到动画 README
 - 模板管理：保存/加载常用标题模板，模板存储在 Workers KV
 - 账号系统：账号密码登录，GitHub Token 加密存储在 Workers KV
+- 系统设置：GitHub Token 和 R2 下载域名通过网页端配置，存储在 Workers KV
 
 ## 技术栈
 
 - 前端：Vue 3 + TypeScript + Naive UI + Vue Router
 - 后端：Cloudflare Workers
-- 存储：Workers KV（账号/Token/模板）、R2（字体文件）
+- 存储：Workers KV（账号/Token/模板/配置）、R2（字体文件）
 - 部署：Cloudflare Workers + Assets
 
 ## 部署
@@ -23,7 +24,7 @@ smzase_sub 字幕仓库的统一管理网页端，基于 Vue 3 + Naive UI + Clou
 
 ```bash
 # 创建 KV 命名空间
-wrangler kv namespace create "KV"
+wrangler kv namespace create "subKV"
 
 # 创建 R2 存储桶
 wrangler r2 bucket create smzase-fonts
@@ -32,8 +33,6 @@ wrangler r2 bucket create smzase-fonts
 ### 2. 配置 wrangler.toml
 
 将 `wrangler.toml` 中的 `YOUR_KV_NAMESPACE_ID` 替换为实际创建的 KV 命名空间 ID。
-
-如需自定义 R2 字体下载域名，修改 `R2_PUBLIC_DOMAIN` 变量。
 
 ### 3. 部署
 
@@ -46,7 +45,9 @@ npm run deploy
 
 首次访问网页会进入创建管理员账号页面，设置用户名和密码后登录。
 
-登录后在右上角设置 GitHub Personal Access Token（需要 `repo` 权限）。
+登录后进入「设置」页面配置：
+- **GitHub Personal Access Token**（需要 `repo` 权限）
+- **R2 字体下载域名**（R2 对象的公开访问域名，如 `https://fonts.example.com`）
 
 ## 仓库目录结构
 
@@ -76,7 +77,7 @@ npm run dev
 
 ```
 src/
-├── App.vue              # 主布局（登录检查、导航、Token 管理）
+├── App.vue              # 主布局（登录检查、导航）
 ├── main.ts              # 应用入口
 ├── router/index.ts      # 路由配置
 ├── types.ts             # TypeScript 类型定义
@@ -84,7 +85,8 @@ src/
 │   ├── LoginView.vue    # 登录/注册页面
 │   ├── UploadView.vue   # 上传页面（字幕+字体）
 │   ├── SubtitleView.vue # 字幕列表页面
-│   └── FontView.vue     # 字体列表页面
+│   ├── FontView.vue     # 字体列表页面
+│   └── SettingsView.vue # 设置页面（Token/R2 域名）
 ├── utils/
 │   ├── api.ts           # Worker API 封装（认证/R2/KV）
 │   ├── github.ts        # GitHub API 封装（Git Data API）
