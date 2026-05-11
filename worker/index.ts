@@ -69,26 +69,30 @@ async function verifyAuth(request: Request, env: Env): Promise<boolean> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url)
+    try {
+      const url = new URL(request.url)
 
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders() })
-    }
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: corsHeaders() })
+      }
 
-    if (url.pathname.startsWith('/api/')) {
-      return handleApi(request, url, env)
-    }
+      if (url.pathname.startsWith('/api/')) {
+        return await handleApi(request, url, env)
+      }
 
-    const response = await env.ASSETS.fetch(request)
-    if (response.status === 404 && !url.pathname.startsWith('/assets/')) {
-      const indexUrl = new URL('/', request.url)
-      const indexResponse = await env.ASSETS.fetch(new Request(indexUrl.toString()))
-      return new Response(indexResponse.body, {
-        status: 200,
-        headers: { 'Content-Type': 'text/html' },
-      })
+      const response = await env.ASSETS.fetch(request)
+      if (response.status === 404 && !url.pathname.startsWith('/assets/')) {
+        const indexUrl = new URL('/', request.url)
+        const indexResponse = await env.ASSETS.fetch(new Request(indexUrl.toString()))
+        return new Response(indexResponse.body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      }
+      return response
+    } catch (err: any) {
+      return jsonResponse({ error: err.message || 'Internal Server Error' }, 500)
     }
-    return response
   },
 } as ExportedHandler<Env>
 
@@ -180,33 +184,34 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
 
   if (path === 'fonts/upload' && request.method === 'POST') {
     const contentType = request.headers.get('Content-Type') || ''
-    const fileName = request.headers.get('X-File-Name') || 'unknown'
-    const encodedName = encodeURIComponent(fileName)
-    const key = `fonts/${encodedName}`
+    const fileName = decodeURIComponent(request.headers.get('X-File-Name') || 'unknown')
+    const key = `fonts/${fileName}`
     await env.R2.put(key, request.body!, {
       httpMetadata: { contentType },
       customMetadata: { originalName: fileName },
     })
     const domain = (await env.subKV.get('config:r2_domain')) || ''
-    const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/${key}` : ''
+    const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/${encodeURIComponent(fileName)}` : ''
     return jsonResponse({ success: true, key, downloadUrl })
   }
 
   if (path.startsWith('fonts/download/') && request.method === 'GET') {
-    const key = `fonts/${path.replace('fonts/download/', '')}`
+    const fileName = decodeURIComponent(path.replace('fonts/download/', ''))
+    const key = `fonts/${fileName}`
     const object = await env.R2.get(key)
     if (!object) return jsonResponse({ error: 'Not found' }, 404)
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${object.customMetadata?.originalName || key.split('/').pop()}"`,
+        'Content-Disposition': `attachment; filename="${object.customMetadata?.originalName || fileName}"`,
       },
     })
   }
 
-  if (path.startsWith('fonts/delete/') && request.method === 'DELETE') {
-    const key = `fonts/${path.replace('fonts/delete/', '')}`
-    await env.R2.delete(key)
+  if (path === 'fonts/delete' && request.method === 'POST') {
+    const body = await request.json() as { key: string }
+    if (!body.key) return jsonResponse({ error: 'Missing key' }, 400)
+    await env.R2.delete(body.key)
     return jsonResponse({ success: true })
   }
 
@@ -214,12 +219,12 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const listed = await env.R2.list({ prefix: 'fonts/' })
     const domain = (await env.subKV.get('config:r2_domain')) || ''
     const files = listed.objects.map(obj => {
-      const name = decodeURIComponent(obj.key.replace('fonts/', ''))
+      const name = obj.key.replace('fonts/', '')
       return {
         name,
         key: obj.key,
         size: obj.size,
-        downloadUrl: domain ? `${domain.replace(/\/$/, '')}/${obj.key}` : '',
+        downloadUrl: domain ? `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(name)}` : '',
       }
     })
     return jsonResponse({ files })

@@ -305,10 +305,6 @@ const fontColumns: DataTableColumns<QueueItem> = [
   { title: '文件名', key: 'originalName', ellipsis: { tooltip: true } },
   { title: '大小', key: 'size', width: 120, render: (row) => formatFileSize(row.size) },
   {
-    title: '分片', key: 'split', width: 80,
-    render: (row) => row.size > 25 * 1024 * 1024 ? h(NTag, { type: 'warning', size: 'small' }, { default: () => '是' }) : '-',
-  },
-  {
     title: '状态', key: 'status', width: 100,
     render: (row) => {
       const typeMap: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {

@@ -159,3 +159,29 @@ export async function deleteFile(path: string, message: string, branch = 'main')
     body: JSON.stringify({ message, sha: content.sha, branch }),
   })
 }
+
+export async function deleteFolder(folderPath: string, message: string, branch = 'main'): Promise<void> {
+  const refSha = await getRef(branch)
+  const commit = await getCommit(refSha)
+  const baseTreeSha = commit.tree.sha
+
+  const tree = await getTree(baseTreeSha)
+  const allFiles = tree.tree || []
+
+  const filesInFolder = allFiles.filter(
+    (item: any) => item.path.startsWith(folderPath + '/') && item.type === 'blob'
+  )
+
+  if (filesInFolder.length === 0) return
+
+  const treeItems = filesInFolder.map((item: any) => ({
+    path: item.path,
+    mode: '100644',
+    type: 'blob',
+    sha: null as any,
+  }))
+
+  const newTreeSha = await createTree(baseTreeSha, treeItems)
+  const newCommitSha = await createCommit(message, newTreeSha, refSha)
+  await updateRef(newCommitSha, branch)
+}

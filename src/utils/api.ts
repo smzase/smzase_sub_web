@@ -105,7 +105,10 @@ export async function uploadFontToR2(file: File): Promise<{ success: boolean; ke
 }
 
 export async function deleteFontFromR2(key: string): Promise<any> {
-  return apiFetch(`fonts/delete/${encodeURIComponent(key)}`, { method: 'DELETE' })
+  return apiFetch('fonts/delete', {
+    method: 'POST',
+    body: JSON.stringify({ key }),
+  })
 }
 
 export async function listR2Fonts(): Promise<{ files: Array<{ name: string; key: string; size: number; downloadUrl: string }> }> {
