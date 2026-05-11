@@ -40,7 +40,9 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
 
   if (anime.languages.length > 0) {
     md += `## 字幕语言\n\n`
-    for (const lang of anime.languages) {
+    const langOrder: Record<string, number> = { 'zh-hans': 0, 'zh-hant': 1 }
+    const sortedLangs = [...anime.languages].sort((a, b) => (langOrder[a] ?? 9) - (langOrder[b] ?? 9))
+    for (const lang of sortedLangs) {
       if (lang === 'zh-hans') {
         md += `- \`Zh-hans\` 为 ${anime.subtitleType === 'bilingual' ? '简日双语' : '简体中文'}\n`
       } else if (lang === 'zh-hant') {
@@ -173,6 +175,7 @@ export function parseAnimeReadme(content: string): {
   if (fontSection) {
     const rows = fontSection[1].trim().split('\n')
     for (const row of rows) {
+      if (row.includes('---')) continue
       const cols = row.split('|').filter(c => c.trim())
       if (cols.length >= 2) {
         const displayName = cols[0].trim()
