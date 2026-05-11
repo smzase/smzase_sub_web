@@ -198,7 +198,7 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
       customMetadata: { originalName: fileName },
     })
     const domain = (await env.subKV.get('config:r2_domain')) || ''
-    const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/${encodeURIComponent(fileName)}` : ''
+    const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(fileName)}` : ''
     return jsonResponse({ success: true, key, downloadUrl })
   }
 

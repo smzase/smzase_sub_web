@@ -71,7 +71,7 @@ import { ref, computed, onMounted, h } from 'vue'
 import { NButton, NSpace, NPopconfirm, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import { getContents, readmeUrl, getToken, uploadFiles, deleteFile, downloadUrl } from '../utils/github'
-import { deleteFontFromR2, listR2Fonts } from '../utils/api'
+import { deleteFontFromR2, listR2Fonts, getR2Domain } from '../utils/api'
 import { formatFileSize } from '../utils/rename'
 import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
 
@@ -267,7 +267,24 @@ async function linkFontToAnime() {
     const parsed = parseAnimeReadme(readmeContent)
 
     const fontName = selectedFont.value.name
-    const fontDl = selectedFont.value.downloadUrl
+    let fontDl = selectedFont.value.downloadUrl
+
+    if (selectedFont.value.key.startsWith('fonts/') && !fontDl) {
+      try {
+        const { domain } = await getR2Domain()
+        if (domain) {
+          fontDl = `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(fontName)}`
+        }
+      } catch {
+        // noop
+      }
+    }
+
+    if (selectedFont.value.key.startsWith('fonts/') && !fontDl) {
+      message.warning('请先在设置中配置 R2 下载域名')
+      linking.value = false
+      return
+    }
 
     const alreadyExists = parsed.fonts.some((f) => f.name === fontName)
     if (alreadyExists) {
