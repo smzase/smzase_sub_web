@@ -97,14 +97,44 @@ function decodeBase64Utf8(text: string): string {
   }
 }
 
-async function getR2FontName(env: Env, key: string, fallbackName: string): Promise<string> {
-  const object = await env.R2.get(key)
-  if (!object) return fallbackName.replace(/\.(ttf|otf|ttc|woff2?)$/i, '')
-  const encodedName = object.customMetadata?.fontNameBase64
-  const metadataName = encodedName ? decodeBase64Utf8(encodedName) : object.customMetadata?.fontName
+const FONT_METADATA_INDEX_KEY = 'fonts/_metadata.json'
+
+type FontMetadataIndex = Record<string, { fontName: string; originalName?: string }>
+
+function readFontNameFromMetadata(metadata?: Record<string, string>): string {
+  if (!metadata) return ''
+  const encodedName = metadata.fontNameBase64
+  return encodedName ? decodeBase64Utf8(encodedName) : metadata.fontName || ''
+}
+
+async function readFontMetadataIndex(env: Env): Promise<FontMetadataIndex> {
+  const object = await env.R2.get(FONT_METADATA_INDEX_KEY)
+  if (!object) return {}
+  try {
+    return JSON.parse(await object.text())
+  } catch {
+    return {}
+  }
+}
+
+async function writeFontMetadataIndex(env: Env, index: FontMetadataIndex): Promise<void> {
+  await env.R2.put(FONT_METADATA_INDEX_KEY, JSON.stringify(index), {
+    httpMetadata: { contentType: 'application/json; charset=utf-8' },
+  })
+}
+
+async function getR2FontName(env: Env, key: string, fallbackName: string, index?: FontMetadataIndex): Promise<string> {
+  const fallback = fallbackName.replace(/\.(ttf|otf|ttc|woff2?)$/i, '')
+  const indexedName = index?.[key]?.fontName
+  if (indexedName) return indexedName
+  const head = await env.R2.head(key)
+  if (!head) return fallback
+  const metadataName = readFontNameFromMetadata(head.customMetadata)
   if (metadataName) return metadataName
+  const object = await env.R2.get(key)
+  if (!object) return fallback
   const buffer = await object.arrayBuffer()
-  const parsedName = parseFontName(buffer) || fallbackName.replace(/\.(ttf|otf|ttc|woff2?)$/i, '')
+  const parsedName = parseFontName(buffer) || fallback
   await env.R2.put(key, buffer, {
     httpMetadata: object.httpMetadata || undefined,
     customMetadata: {
@@ -344,6 +374,9 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
       httpMetadata: { contentType },
       customMetadata: { originalName: fileName, fontNameBase64: encodeBase64Utf8(fontName) },
     })
+    const index = await readFontMetadataIndex(env)
+    index[key] = { fontName, originalName: fileName }
+    await writeFontMetadataIndex(env, index)
     const domain = (await env.subKV.get('config:r2_domain')) || ''
     const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(fileName)}` : ''
     return jsonResponse({ success: true, key, downloadUrl, fontName })
@@ -366,16 +399,25 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const body = await request.json() as { key: string }
     if (!body.key) return jsonResponse({ error: 'Missing key' }, 400)
     await env.R2.delete(body.key)
+    const index = await readFontMetadataIndex(env)
+    delete index[body.key]
+    await writeFontMetadataIndex(env, index)
     return jsonResponse({ success: true })
   }
 
   if (path === 'fonts/list' && request.method === 'GET') {
     const listed = await env.R2.list({ prefix: 'fonts/' })
     const domain = (await env.subKV.get('config:r2_domain')) || ''
-    const files = await Promise.all(listed.objects.map(async obj => {
+    const index = await readFontMetadataIndex(env)
+    let indexChanged = false
+    const files = await Promise.all(listed.objects.filter(obj => obj.key !== FONT_METADATA_INDEX_KEY).map(async obj => {
       const rawName = obj.key.replace('fonts/', '')
       const name = decodeURIComponent(rawName)
-      const fontName = await getR2FontName(env, obj.key, name)
+      const fontName = await getR2FontName(env, obj.key, name, index)
+      if (fontName && index[obj.key]?.fontName !== fontName) {
+        index[obj.key] = { fontName, originalName: name }
+        indexChanged = true
+      }
       return {
         name,
         key: obj.key,
@@ -384,6 +426,7 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
         fontName,
       }
     }))
+    if (indexChanged) await writeFontMetadataIndex(env, index)
     return jsonResponse({ files })
   }
 
