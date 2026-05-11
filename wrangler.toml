@@ -1,4 +1,4 @@
-name = "smzase-sub-web"
+name = "smzasesub-web"
 main = "worker/index.ts"
 compatibility_date = "2024-12-01"
 
