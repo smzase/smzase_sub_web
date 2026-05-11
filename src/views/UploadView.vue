@@ -212,7 +212,7 @@ import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import { uploadFiles, getToken, getContents, readmeUrl, rawUrl, downloadUrl } from '../utils/github'
-import { uploadFontToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, saveAnimeName } from '../utils/api'
+import { uploadFontToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -734,7 +734,6 @@ async function commitSubtitles() {
     const epStr = epList.map(e => `EP${String(e).padStart(2, '0')}`).join(', ')
     const commitTitleCn = titleCn || template.value.titleEn
     await uploadFiles(files, `[${commitTitleCn}] ${epStr} ${langLabels}`)
-    if (titleCn) await saveAnimeName(template.value.year, template.value.titleEn, titleCn).catch(() => {})
 
     for (const item of subtitleQueue.value) {
       item.status = 'done'

@@ -118,14 +118,3 @@ export async function deleteFontFromR2(key: string): Promise<any> {
 export async function listR2Fonts(): Promise<{ files: Array<{ name: string; key: string; size: number; downloadUrl: string; fontName: string }> }> {
   return apiFetch('fonts/list')
 }
-
-export async function getAnimeNames(): Promise<{ names: Record<string, string> }> {
-  return apiFetch('anime/names')
-}
-
-export async function saveAnimeName(year: string, titleEn: string, titleCn: string): Promise<any> {
-  return apiFetch('anime/names', {
-    method: 'POST',
-    body: JSON.stringify({ year, titleEn, titleCn }),
-  })
-}

@@ -124,12 +124,28 @@ import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
 import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme } from '../utils/readme'
-import { getAnimeNames, saveAnimeName } from '../utils/api'
+import { getTemplates as apiGetTemplates } from '../utils/api'
 
 interface AnimeListItem {
   folder: string
   languages: string[]
   subtitleCount: number
+}
+
+interface StoredTemplate {
+  titleEn?: string
+  titleCn?: string
+  year?: string
+}
+
+function getTemplateNames(templates: StoredTemplate[], year: string): Record<string, string> {
+  const names: Record<string, string> = {}
+  for (const t of templates) {
+    if (t.year === year && t.titleEn && t.titleCn) {
+      names[t.titleEn] = t.titleCn
+    }
+  }
+  return names
 }
 
 const message = useMessage()
@@ -296,7 +312,7 @@ async function updateYearReadme(year: string) {
     const yearContents = await getContents(`Anime subtitles/${year}`)
     if (!yearContents || !Array.isArray(yearContents)) return
     const animeDirs = yearContents.filter((c: any) => c.type === 'dir')
-    const storedNames = await getAnimeNames().then(res => res.names || {}).catch(() => ({} as Record<string, string>))
+    const templateNames = await apiGetTemplates().then(res => getTemplateNames(res.templates || [], year)).catch(() => ({} as Record<string, string>))
     const existingYearNames: Record<string, string> = {}
     const yearReadmeFile = yearContents.find((c: any) => c.type === 'file' && c.name === 'README.md')
     if (yearReadmeFile) {
@@ -305,7 +321,7 @@ async function updateYearReadme(year: string) {
     }
     const animeList: Array<{ titleEn: string; titleCn: string }> = []
     for (const dir of animeDirs) {
-      let titleCn = storedNames[`${year}/${dir.name}`] || existingYearNames[dir.name] || ''
+      let titleCn = templateNames[dir.name] || existingYearNames[dir.name] || ''
       const readmeFile = await getContents(`Anime subtitles/${year}/${dir.name}/README.md`)
       if (readmeFile && readmeFile.name === 'README.md') {
         const rUrl = readmeUrl(`Anime subtitles/${year}/${dir.name}/README.md`)
@@ -316,7 +332,6 @@ async function updateYearReadme(year: string) {
           if (parsed.titleCn) titleCn = parsed.titleCn
         }
       }
-      if (titleCn) await saveAnimeName(year, dir.name, titleCn).catch(() => {})
       animeList.push({ titleEn: dir.name, titleCn })
     }
     const readmeContent = generateYearReadme(year, animeList)
@@ -350,9 +365,6 @@ async function updateReadme() {
       [{ path: readmePath, content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' }],
       `docs: 更新 README`
     )
-    if (animeDetail.value.titleCn) {
-      await saveAnimeName(animeDetail.value.year, animeDetail.value.titleEn, animeDetail.value.titleCn).catch(() => {})
-    }
   } catch {
     // noop
   }
@@ -440,7 +452,6 @@ async function toggleAnimeDetail(year: string, folder: string) {
         const text = await res.text()
         const parsed = parseAnimeReadme(text)
         titleCn = parsed.titleCn
-        if (titleCn) await saveAnimeName(year, folder, titleCn).catch(() => {})
         coverUrl = parsed.coverUrl
         languages = parsed.languages
         readmeFonts = parsed.fonts
