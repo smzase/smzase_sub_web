@@ -18,6 +18,10 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `![${anime.titleEn}](${anime.coverUrl})\n\n`
   }
 
+  if (anime.titleCn) {
+    md += `**中文名:** ${anime.titleCn}\n\n`
+  }
+
   if (anime.languages.length > 0) {
     md += `## 字幕语言\n\n`
     for (const lang of anime.languages) {
