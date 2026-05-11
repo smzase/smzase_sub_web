@@ -59,15 +59,28 @@
                         <n-button size="tiny" @click="confirmBatchDelete = false">取消</n-button>
                       </n-space>
 
-                      <div v-if="animeDetail.fonts.length > 0">
-                        <n-text strong style="display: block; margin-bottom: 8px;">使用字体</n-text>
-                        <n-data-table
-                          :columns="fontRefColumns"
-                          :data="animeDetail.fonts"
-                          :pagination="false"
-                          size="small"
-                        />
-                      </div>
+                      <n-collapse v-if="animeDetail.fonts.length > 0" :default-expanded-names="[]">
+                        <n-collapse-item title="使用字体" name="fonts">
+                          <n-data-table
+                            :columns="fontRefColumns"
+                            :data="animeDetail.fonts"
+                            :row-key="(row: FontRef) => row.name"
+                            :checked-row-keys="checkedFonts"
+                            @update:checked-row-keys="onFontCheckChange"
+                            :pagination="false"
+                            size="small"
+                          />
+                          <n-space v-if="checkedFonts.length > 0" justify="center" style="margin-top: 8px;">
+                            <n-text depth="3">已选 {{ checkedFonts.length }} 项</n-text>
+                            <n-button size="tiny" type="error" @click="confirmFontBatchRemove = true">批量移除</n-button>
+                          </n-space>
+                          <n-space v-if="confirmFontBatchRemove" justify="center" style="margin-top: 4px;">
+                            <n-text type="error" style="font-size: 12px;">确认移除 {{ checkedFonts.length }} 个字体?</n-text>
+                            <n-button size="tiny" type="error" @click="doFontBatchRemove">确认</n-button>
+                            <n-button size="tiny" @click="confirmFontBatchRemove = false">取消</n-button>
+                          </n-space>
+                        </n-collapse-item>
+                      </n-collapse>
                     </div>
                   </n-spin>
                 </template>
@@ -123,6 +136,8 @@ const checkedSubtitles = ref<string[]>([])
 const confirmBatchDelete = ref(false)
 const showEditModal = ref(false)
 const editingSubtitle = ref<SubtitleFile | null>(null)
+const checkedFonts = ref<string[]>([])
+const confirmFontBatchRemove = ref(false)
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
   {
@@ -153,19 +168,49 @@ const subtitleColumns: DataTableColumns<SubtitleFile> = [
 ]
 
 const fontRefColumns: DataTableColumns<FontRef> = [
+  {
+    type: 'selection',
+  },
   { title: '字体名', key: 'name' },
   {
     title: '操作', key: 'actions', width: 80,
-    render: (row) => h(NButton, {
-      size: 'tiny', type: 'primary', text: true,
-      onClick: () => window.open(row.downloadUrl || downloadUrl(row.path), '_blank'),
-    }, { default: () => '下载' }),
+    render: (row) => h(NPopconfirm, {
+      onPositiveClick: () => doRemoveFont(row),
+    }, {
+      trigger: () => h(NButton, {
+        size: 'tiny', type: 'error', text: true,
+      }, { default: () => '移除' }),
+      default: () => `确认移除 ${row.name}?`,
+    }),
   },
 ]
 
 function onCheckChange(keys: string[]) {
   checkedSubtitles.value = keys
   confirmBatchDelete.value = false
+}
+
+function onFontCheckChange(keys: string[]) {
+  checkedFonts.value = keys
+  confirmFontBatchRemove.value = false
+}
+
+async function doRemoveFont(font: FontRef) {
+  if (!animeDetail.value) return
+  animeDetail.value.fonts = animeDetail.value.fonts.filter(f => f.name !== font.name)
+  await updateReadme()
+  message.success(`已移除 ${font.name}`)
+}
+
+async function doFontBatchRemove() {
+  if (!animeDetail.value) return
+  animeDetail.value.fonts = animeDetail.value.fonts.filter(
+    f => !checkedFonts.value.includes(f.name)
+  )
+  checkedFonts.value = []
+  confirmFontBatchRemove.value = false
+  await updateReadme()
+  message.success('批量移除完成')
 }
 
 function openEditModal(sub: SubtitleFile) {
@@ -312,6 +357,8 @@ async function toggleAnimeDetail(year: string, folder: string) {
   detailLoading.value = true
   checkedSubtitles.value = []
   confirmBatchDelete.value = false
+  checkedFonts.value = []
+  confirmFontBatchRemove.value = false
 
   try {
     const basePath = `Anime subtitles/${year}/${folder}`
