@@ -79,8 +79,8 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
 
   if (anime.subtitles.length > 0) {
     md += `## 字幕列表\n\n`
-    md += `| 集数 | 简体下载 | 繁體下載 |\n`
-    md += `| --- | --- | --- |\n`
+    md += `| 集数 | 标题 | 简体下载 | 繁體下載 |\n`
+    md += `| --- | --- | --- | --- |\n`
 
     const episodeMap = new Map<number, { zhHans?: SubtitleFile; zhHant?: SubtitleFile }>()
     for (const sub of anime.subtitles) {
@@ -93,17 +93,19 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     }
 
     const sortedEpisodes = Array.from(episodeMap.keys()).sort((a, b) => a - b)
+    const titles = anime.episodeTitles || {}
 
     for (const epNum of sortedEpisodes) {
       const ep = episodeMap.get(epNum)!
-      const epLabel = `E${String(epNum).padStart(2, '0')}`
+      const epLabel = `EP${String(epNum).padStart(2, '0')}`
+      const titleCell = titles[epNum] || ''
       const hansCell = ep.zhHans
         ? `[下载](${ep.zhHans.downloadUrl || downloadUrl(ep.zhHans.path)})`
         : '-'
       const hantCell = ep.zhHant
         ? `[下载](${ep.zhHant.downloadUrl || downloadUrl(ep.zhHant.path)})`
         : '-'
-      md += `| ${epLabel} | ${hansCell} | ${hantCell} |\n`
+      md += `| ${epLabel} | ${titleCell} | ${hansCell} | ${hantCell} |\n`
     }
     md += `\n`
   }
@@ -137,6 +139,7 @@ export function parseAnimeReadme(content: string): {
   fonts: FontRef[]
   subtitles: SubtitleFile[]
   subtitleType: string
+  episodeTitles: Record<number, string>
 } {
   const result = {
     coverUrl: '',
@@ -145,6 +148,7 @@ export function parseAnimeReadme(content: string): {
     fonts: [] as FontRef[],
     subtitles: [] as SubtitleFile[],
     subtitleType: 'bilingual',
+    episodeTitles: {} as Record<number, string>,
   }
 
   const coverMatch = content.match(/!\[.*?\]\((.*?)\)/)
@@ -190,8 +194,17 @@ export function parseAnimeReadme(content: string): {
   if (subSection) {
     const rows = subSection[1].trim().split('\n')
     for (const row of rows) {
+      if (row.includes('---')) continue
       const cols = row.split('|').map(c => c.trim()).filter(c => c)
-      if (cols.length >= 2) continue
+      if (cols.length < 2) continue
+      const epLabel = cols[0]
+      const epMatch = epLabel.match(/EP(\d+)/i) || epLabel.match(/E(\d+)/i)
+      if (!epMatch) continue
+      const epNum = parseInt(epMatch[1], 10)
+      if (cols.length >= 4) {
+        const title = cols[1]
+        if (title) result.episodeTitles[epNum] = title
+      }
     }
   }
 

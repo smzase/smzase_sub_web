@@ -691,13 +691,13 @@ async function fetchExistingSubtitles(): Promise<SubtitleFile[]> {
   }
 }
 
-async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string }> {
-  if (!selectedYear.value || !template.value.titleEn) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
+async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
+  if (!selectedYear.value || !template.value.titleEn) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
   const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
   try {
     const rUrl = readmeUrl(`${basePath}/README.md`)
     const res = await fetch(rUrl)
-    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
+    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
     const text = await res.text()
     const parsed = parseAnimeReadme(text)
     return {
@@ -706,9 +706,10 @@ async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; coverUrl: 
       titleCn: parsed.titleCn,
       languages: parsed.languages,
       subtitleType: parsed.subtitleType || 'bilingual',
+      episodeTitles: parsed.episodeTitles,
     }
   } catch {
-    return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
+    return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
   }
 }
 
@@ -736,12 +737,12 @@ async function fetchAnimeSubtitles(year: string, anime: string): Promise<Subtitl
   }
 }
 
-async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ fonts: FontRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string }> {
+async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ fonts: FontRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
   const basePath = `Anime subtitles/${year}/${anime}`
   try {
     const rUrl = readmeUrl(`${basePath}/README.md`)
     const res = await fetch(rUrl)
-    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
+    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
     const parsed = parseAnimeReadme(await res.text())
     return {
       fonts: parsed.fonts,
@@ -749,9 +750,10 @@ async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ font
       titleCn: parsed.titleCn,
       languages: parsed.languages,
       subtitleType: parsed.subtitleType || 'bilingual',
+      episodeTitles: parsed.episodeTitles,
     }
   } catch {
-    return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
+    return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
   }
 }
 
@@ -792,6 +794,7 @@ async function linkFontsToAnime(fonts: FontRef[], year: string, anime: string): 
     subtitles,
     fonts: info.fonts,
     subtitleType: info.subtitleType,
+    episodeTitles: info.episodeTitles,
   }
   const newReadme = generateAnimeReadme(animeInfo)
   await uploadFiles(
@@ -851,6 +854,7 @@ async function commitSubtitles() {
       subtitles: allSubs,
       fonts,
       subtitleType: template.value.subtitleType,
+      episodeTitles: existingInfo.episodeTitles,
     }
 
     const readmePath = `Anime subtitles/${template.value.year}/${template.value.titleEn}/README.md`

@@ -33,6 +33,7 @@
                         {{ lang === 'zh-hans' ? '简中' : lang === 'zh-hant' ? '繁中' : lang }}
                       </n-tag>
                       <n-tag size="small" type="info">{{ anime.subtitleCount }} 个字幕</n-tag>
+                      <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
                     </n-space>
                   </template>
                 </n-thing>
@@ -56,6 +57,10 @@
                         size="small"
                         style="margin-bottom: 12px;"
                       />
+
+                      <n-space v-if="animeDetail.subtitles.length > 0" justify="center" style="margin-bottom: 12px;">
+                        <n-button size="tiny" @click="openEpisodeTitleModal">编辑集数标题</n-button>
+                      </n-space>
 
                       <n-space v-if="checkedSubtitles.length > 0" justify="center" style="margin-bottom: 12px;">
                         <n-text depth="3">已选 {{ checkedSubtitles.length }} 项</n-text>
@@ -117,6 +122,21 @@
         <n-button @click="showEditModal = false">关闭</n-button>
       </template>
     </n-modal>
+
+    <n-modal v-model:show="showEpisodeTitleModal" preset="card" title="编辑集数标题" style="width: 520px;">
+      <n-form label-placement="left" label-width="80">
+        <n-form-item v-for="ep in episodeTitleList" :key="ep.episode" :label="`EP${String(ep.episode).padStart(2, '0')}`">
+          <n-input v-model:value="ep.title" placeholder="输入本集标题" />
+        </n-form-item>
+      </n-form>
+      <n-empty v-if="episodeTitleList.length === 0" description="暂无集数" />
+      <template #action>
+        <n-space>
+          <n-button @click="showEpisodeTitleModal = false">取消</n-button>
+          <n-button type="primary" :loading="savingEpisodeTitles" @click="saveEpisodeTitles">保存</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -166,12 +186,16 @@ const checkedFonts = ref<string[]>([])
 const confirmFontBatchRemove = ref(false)
 const yearReadmeLoading = ref('')
 const rootReadmeLoading = ref(false)
+const animeReadmeLoading = ref('')
+const showEpisodeTitleModal = ref(false)
+const savingEpisodeTitles = ref(false)
+const episodeTitleList = ref<Array<{ episode: number; title: string }>>([])
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
   {
     type: 'selection',
   },
-  { title: '集数', key: 'episode', width: 70, render: (row) => `E${String(row.episode).padStart(2, '0')}` },
+  { title: '集数', key: 'episode', width: 70, render: (row) => `EP${String(row.episode).padStart(2, '0')}` },
   { title: '语言', key: 'lang', width: 80, render: (row) => row.lang === 'zh-hans' ? '简中' : row.lang === 'zh-hant' ? '繁中' : row.lang },
   { title: '文件名', key: 'name', ellipsis: { tooltip: true } },
   {
@@ -405,6 +429,116 @@ async function updateReadme() {
   }
 }
 
+async function refreshAnimeReadme(year: string, folder: string) {
+  const key = `${year}/${folder}`
+  animeReadmeLoading.value = key
+  try {
+    const basePath = `Anime subtitles/${year}/${folder}`
+    const contents = await getContents(basePath)
+    if (!contents || !Array.isArray(contents)) return
+
+    let titleCn = ''
+    let coverUrl = ''
+    let languages: string[] = []
+    let readmeFonts: FontRef[] = []
+    let subtitleType = 'bilingual'
+    let episodeTitles: Record<number, string> = {}
+
+    const readmeFile = contents.find((f: any) => f.name === 'README.md')
+    if (readmeFile) {
+      const rUrl = readmeUrl(`${basePath}/README.md`)
+      const res = await fetch(rUrl)
+      if (res.ok) {
+        const text = await res.text()
+        const parsed = parseAnimeReadme(text)
+        titleCn = parsed.titleCn
+        coverUrl = parsed.coverUrl
+        languages = parsed.languages
+        readmeFonts = parsed.fonts
+        subtitleType = parsed.subtitleType || 'bilingual'
+        episodeTitles = parsed.episodeTitles
+      }
+    }
+
+    const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
+    const subtitles: SubtitleFile[] = assFiles.map((f: any) => {
+      const epMatch = f.name.match(/E(\d+)/)
+      const langMatch = f.name.match(/\.(zh-hans|zh-hant)\./)
+      return {
+        name: f.name,
+        path: `${basePath}/${f.name}`,
+        episode: epMatch ? parseInt(epMatch[1], 10) : 0,
+        season: 1,
+        lang: langMatch ? langMatch[1] : '',
+        downloadUrl: downloadUrl(`${basePath}/${f.name}`),
+      }
+    })
+
+    if (languages.length === 0) {
+      const langSet = new Set<string>()
+      for (const s of subtitles) {
+        if (s.lang) langSet.add(s.lang)
+      }
+      languages = Array.from(langSet)
+    }
+
+    const animeInfo: AnimeInfo = {
+      year,
+      folder,
+      titleEn: folder,
+      titleCn,
+      coverUrl,
+      languages,
+      subtitles,
+      fonts: readmeFonts,
+      subtitleType,
+      episodeTitles,
+    }
+
+    const readmePath = `${basePath}/README.md`
+    const readmeContent = generateAnimeReadme(animeInfo)
+    await uploadFiles(
+      [{ path: readmePath, content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' }],
+      `docs: 更新 ${folder} README`
+    )
+    message.success(`${folder} README 已更新`)
+  } catch (err: any) {
+    message.error(`更新失败: ${err.message}`)
+  } finally {
+    animeReadmeLoading.value = ''
+  }
+}
+
+function openEpisodeTitleModal() {
+  if (!animeDetail.value) return
+  const episodes = new Set(animeDetail.value.subtitles.map(s => s.episode))
+  const titles = animeDetail.value.episodeTitles || {}
+  episodeTitleList.value = Array.from(episodes).sort((a, b) => a - b).map(ep => ({
+    episode: ep,
+    title: titles[ep] || '',
+  }))
+  showEpisodeTitleModal.value = true
+}
+
+async function saveEpisodeTitles() {
+  if (!animeDetail.value) return
+  savingEpisodeTitles.value = true
+  try {
+    const titles: Record<number, string> = {}
+    for (const ep of episodeTitleList.value) {
+      if (ep.title.trim()) titles[ep.episode] = ep.title.trim()
+    }
+    animeDetail.value.episodeTitles = titles
+    await updateReadme()
+    showEpisodeTitleModal.value = false
+    message.success('集数标题已保存')
+  } catch (err: any) {
+    message.error(`保存失败: ${err.message}`)
+  } finally {
+    savingEpisodeTitles.value = false
+  }
+}
+
 async function loadData() {
   if (!getToken()) {
     message.warning('请先设置 GitHub Token')
@@ -478,6 +612,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
     let languages: string[] = []
     let readmeFonts: FontRef[] = []
     let subtitleType = 'bilingual'
+    let episodeTitles: Record<number, string> = {}
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
@@ -491,6 +626,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
         languages = parsed.languages
         readmeFonts = parsed.fonts
         subtitleType = parsed.subtitleType || 'bilingual'
+        episodeTitles = parsed.episodeTitles
       }
     }
 
@@ -526,6 +662,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
       subtitles,
       fonts: readmeFonts,
       subtitleType: subtitleType,
+      episodeTitles,
     }
   } catch (err: any) {
     message.error(`加载详情失败: ${err.message}`)

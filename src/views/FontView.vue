@@ -336,6 +336,7 @@ async function linkFontToAnime() {
       subtitles,
       fonts: parsed.fonts,
       subtitleType: parsed.subtitleType || 'bilingual',
+      episodeTitles: parsed.episodeTitles,
     }
 
     const newReadme = generateAnimeReadme(animeInfo)
