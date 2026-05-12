@@ -1,6 +1,17 @@
 import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
 import { downloadUrl } from './github'
 
+export function generateRootReadme(years: string[]): string {
+  let md = `# Anime subtitles\n\n`
+  md += `| 年份 |\n`
+  md += `| --- |\n`
+  for (const year of years) {
+    const encodedPath = encodeURIComponent(year)
+    md += `| [${year}](./${encodedPath}/) |\n`
+  }
+  return md
+}
+
 export function generateYearReadme(year: string, animeList: Array<{ titleEn: string; titleCn: string }>): string {
   let md = `# ${year}\n\n`
   md += `| 标题 | 中文名 |\n`
@@ -25,6 +36,14 @@ export function parseYearReadme(content: string): Record<string, string> {
     if (titleEn && titleCn) result[titleEn] = titleCn
   }
   return result
+}
+
+function getFontSortInfo(font: FontRef): { group: number; value: string } {
+  const value = (font.displayName || font.name).trim()
+  const first = value.charAt(0)
+  if (/^[0-9]/.test(first)) return { group: 0, value }
+  if (/^[A-Za-z]/.test(first)) return { group: 1, value }
+  return { group: 2, value }
 }
 
 export function generateAnimeReadme(anime: AnimeInfo): string {
@@ -90,9 +109,10 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `| 字体名 | 字体下载 |\n`
     md += `| --- | --- |\n`
     const sortedFonts = [...anime.fonts].sort((a, b) => {
-      const na = (a.displayName || a.name).toLowerCase()
-      const nb = (b.displayName || b.name).toLowerCase()
-      return na.localeCompare(nb)
+      const sa = getFontSortInfo(a)
+      const sb = getFontSortInfo(b)
+      if (sa.group !== sb.group) return sa.group - sb.group
+      return sa.value.localeCompare(sb.value, 'en', { numeric: true, sensitivity: 'base' })
     })
     for (const font of sortedFonts) {
       const displayName = font.displayName || font.name

@@ -93,7 +93,7 @@ export async function saveTemplates(templates: any[]): Promise<any> {
   })
 }
 
-export async function uploadFontToR2(file: File): Promise<{ success: boolean; key: string; downloadUrl: string }> {
+export async function uploadFontToR2(file: File): Promise<{ success: boolean; key: string; downloadUrl: string; fontName: string }> {
   const token = getSessionToken()
   const res = await fetch(`${API_BASE}/fonts/upload`, {
     method: 'POST',

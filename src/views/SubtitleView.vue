@@ -2,7 +2,10 @@
   <div>
     <n-card title="字幕列表">
       <template #header-extra>
-        <n-button size="small" :loading="loading" @click="loadData">刷新</n-button>
+        <n-space size="small" align="center">
+          <n-button size="small" :loading="rootReadmeLoading" @click="refreshRootReadme">更新总README</n-button>
+          <n-button size="small" :loading="loading" @click="loadData">刷新</n-button>
+        </n-space>
       </template>
 
       <n-spin :show="loading">
@@ -123,7 +126,7 @@ import { NButton, NSpace, NPopconfirm, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
 import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
-import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme } from '../utils/readme'
+import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
 import { getTemplates as apiGetTemplates } from '../utils/api'
 
 interface AnimeListItem {
@@ -162,6 +165,7 @@ const editingSubtitle = ref<SubtitleFile | null>(null)
 const checkedFonts = ref<string[]>([])
 const confirmFontBatchRemove = ref(false)
 const yearReadmeLoading = ref('')
+const rootReadmeLoading = ref(false)
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
   {
@@ -304,6 +308,28 @@ async function doBatchDelete() {
     message.success('批量删除完成')
   } catch (err: any) {
     message.error(`批量删除失败: ${err.message}`)
+  }
+}
+
+async function refreshRootReadme() {
+  rootReadmeLoading.value = true
+  try {
+    const contents = await getContents('Anime subtitles')
+    if (!contents || !Array.isArray(contents)) return
+    const yearList = contents
+      .filter((c: any) => c.type === 'dir')
+      .map((c: any) => c.name)
+      .sort((a: string, b: string) => b.localeCompare(a))
+    const readmeContent = generateRootReadme(yearList)
+    await uploadFiles(
+      [{ path: 'Anime subtitles/README.md', content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' }],
+      `docs: 更新 Anime subtitles README`
+    )
+    message.success('Anime subtitles README 已更新')
+  } catch (err: any) {
+    message.error(`更新失败: ${err.message}`)
+  } finally {
+    rootReadmeLoading.value = false
   }
 }
 

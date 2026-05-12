@@ -89,45 +89,69 @@
       </template>
 
       <template v-if="uploadTab === 'font'">
-        <div
-          class="drop-zone"
-          :class="{ 'drop-zone--active': isFontDragging }"
-          @click="triggerFontFileInput"
-          @dragover.prevent="onFontDragOver"
-          @dragleave="onFontDragLeave"
-          @drop.prevent="onFontDrop"
-        >
-          <input
-            ref="fontFileInput"
-            type="file"
-            multiple
-            accept=".ttf,.otf,.ttc,.woff,.woff2"
-            style="display: none;"
-            @change="onFontFileInputChange"
-          />
-          <div style="padding: 32px 0; text-align: center;">
-            <n-text style="font-size: 16px; display: block; margin-bottom: 8px;">
-              点击、拖拽或粘贴字体文件到此处上传
-            </n-text>
-            <n-text depth="3">
-              支持 TTF/OTF/TTC/WOFF/WOFF2 格式，字体将上传至 R2 对象存储
-            </n-text>
+        <n-space vertical size="large">
+          <n-space align="center" :wrap="false" style="width: 100%;">
+            <n-select
+              v-model:value="fontLinkYear"
+              :options="yearOptions"
+              placeholder="选择关联年份（可选）"
+              style="width: 180px;"
+              :loading="yearLoading"
+              filterable
+              clearable
+              @update:value="onFontLinkYearSelect"
+            />
+            <n-select
+              v-model:value="fontLinkAnime"
+              :options="fontLinkAnimeOptions"
+              placeholder="选择关联动画（可选）"
+              style="flex: 1; min-width: 220px;"
+              :loading="fontLinkAnimeLoading"
+              :disabled="!fontLinkYear"
+              filterable
+              clearable
+            />
+          </n-space>
+
+          <div
+            class="drop-zone"
+            :class="{ 'drop-zone--active': isFontDragging }"
+            @click="triggerFontFileInput"
+            @dragover.prevent="onFontDragOver"
+            @dragleave="onFontDragLeave"
+            @drop.prevent="onFontDrop"
+          >
+            <input
+              ref="fontFileInput"
+              type="file"
+              multiple
+              accept=".ttf,.otf,.ttc,.woff,.woff2"
+              style="display: none;"
+              @change="onFontFileInputChange"
+            />
+            <div style="padding: 32px 0; text-align: center;">
+              <n-text style="font-size: 16px; display: block; margin-bottom: 8px;">
+                点击、拖拽或粘贴字体文件到此处上传
+              </n-text>
+              <n-text depth="3">
+                支持 TTF/OTF/TTC/WOFF/WOFF2 格式，字体将上传至 R2 对象存储，可选择关联到指定动画
+              </n-text>
+            </div>
           </div>
-        </div>
 
-        <n-data-table
-          v-if="fontQueue.length > 0"
-          :columns="fontColumns"
-          :data="fontQueue"
-          :row-key="(row: QueueItem) => row.id"
-          style="margin-top: 16px;"
-        />
+          <n-data-table
+            v-if="fontQueue.length > 0"
+            :columns="fontColumns"
+            :data="fontQueue"
+            :row-key="(row: QueueItem) => row.id"
+          />
 
-        <n-space style="margin-top: 16px;" v-if="fontQueue.length > 0">
-          <n-button type="primary" :loading="uploading" :disabled="uploading" @click="commitFonts">
-            提交上传 ({{ fontQueue.length }} 个字体)
-          </n-button>
-          <n-button :disabled="uploading" @click="fontQueue = []">清空队列</n-button>
+          <n-space v-if="fontQueue.length > 0">
+            <n-button type="primary" :loading="uploading" :disabled="uploading" @click="commitFonts">
+              提交上传 ({{ fontQueue.length }} 个字体)
+            </n-button>
+            <n-button :disabled="uploading" @click="fontQueue = []">清空队列</n-button>
+          </n-space>
         </n-space>
       </template>
     </n-card>
@@ -209,10 +233,10 @@
 import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { NTag, NButton, NSpace, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import type { UploadTemplate, SubtitleFile } from '../types'
+import type { UploadTemplate, SubtitleFile, FontRef } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import { uploadFiles, getToken, getContents, readmeUrl, rawUrl, downloadUrl } from '../utils/github'
-import { uploadFontToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates } from '../utils/api'
+import { uploadFontToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, listR2Fonts, getR2Domain } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -243,6 +267,10 @@ const selectedYear = ref<string | null>(null)
 const selectedAnime = ref<string | null>(null)
 const yearOptions = ref<SelectOption[]>([])
 const animeOptions = ref<SelectOption[]>([])
+const fontLinkYear = ref<string | null>(null)
+const fontLinkAnime = ref<string | null>(null)
+const fontLinkAnimeOptions = ref<SelectOption[]>([])
+const fontLinkAnimeLoading = ref(false)
 
 const savedTemplates = ref<UploadTemplate[]>([])
 
@@ -507,6 +535,24 @@ async function onAnimeSelect(animeName: string) {
   }
 }
 
+async function onFontLinkYearSelect(year: string | null) {
+  fontLinkAnime.value = null
+  fontLinkAnimeOptions.value = []
+  if (!year) return
+  fontLinkAnimeLoading.value = true
+  try {
+    const contents = await getContents(`Anime subtitles/${year}`)
+    if (!contents || !Array.isArray(contents)) return
+    fontLinkAnimeOptions.value = contents
+      .filter((c: any) => c.type === 'dir')
+      .map((c: any) => ({ label: c.name, value: c.name }))
+  } catch {
+    // noop
+  } finally {
+    fontLinkAnimeLoading.value = false
+  }
+}
+
 function triggerSubtitleFileInput() {
   subtitleFileInput.value?.click()
 }
@@ -645,23 +691,114 @@ async function fetchExistingSubtitles(): Promise<SubtitleFile[]> {
   }
 }
 
-async function fetchExistingReadmeInfo(): Promise<{ fonts: any[]; coverUrl: string; titleCn: string }> {
-  if (!selectedYear.value || !template.value.titleEn) return { fonts: [], coverUrl: '', titleCn: '' }
+async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string }> {
+  if (!selectedYear.value || !template.value.titleEn) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
   const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
   try {
     const rUrl = readmeUrl(`${basePath}/README.md`)
     const res = await fetch(rUrl)
-    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '' }
+    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
     const text = await res.text()
     const parsed = parseAnimeReadme(text)
     return {
       fonts: parsed.fonts,
       coverUrl: parsed.coverUrl,
       titleCn: parsed.titleCn,
+      languages: parsed.languages,
+      subtitleType: parsed.subtitleType || 'bilingual',
     }
   } catch {
-    return { fonts: [], coverUrl: '', titleCn: '' }
+    return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
   }
+}
+
+async function fetchAnimeSubtitles(year: string, anime: string): Promise<SubtitleFile[]> {
+  const basePath = `Anime subtitles/${year}/${anime}`
+  try {
+    const contents = await getContents(basePath)
+    if (!contents || !Array.isArray(contents)) return []
+    return contents
+      .filter((f: any) => f.name.endsWith('.ass'))
+      .map((f: any) => {
+        const epMatch = f.name.match(/E(\d+)/)
+        const langMatch = f.name.match(/\.(zh-hans|zh-hant)\./)
+        return {
+          name: f.name,
+          path: `${basePath}/${f.name}`,
+          episode: epMatch ? parseInt(epMatch[1], 10) : 0,
+          season: 1,
+          lang: langMatch ? langMatch[1] : '',
+          downloadUrl: downloadUrl(`${basePath}/${f.name}`),
+        }
+      })
+  } catch {
+    return []
+  }
+}
+
+async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ fonts: FontRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string }> {
+  const basePath = `Anime subtitles/${year}/${anime}`
+  try {
+    const rUrl = readmeUrl(`${basePath}/README.md`)
+    const res = await fetch(rUrl)
+    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
+    const parsed = parseAnimeReadme(await res.text())
+    return {
+      fonts: parsed.fonts,
+      coverUrl: parsed.coverUrl,
+      titleCn: parsed.titleCn,
+      languages: parsed.languages,
+      subtitleType: parsed.subtitleType || 'bilingual',
+    }
+  } catch {
+    return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual' }
+  }
+}
+
+function getSubtitleLanguages(subtitles: SubtitleFile[], fallback: string[]): string[] {
+  const langs = new Set<string>()
+  for (const sub of subtitles) {
+    if (sub.lang) langs.add(sub.lang)
+  }
+  for (const lang of fallback) langs.add(lang)
+  return Array.from(langs)
+}
+
+async function linkFontsToAnime(fonts: FontRef[], year: string, anime: string): Promise<{ added: number; skipped: number }> {
+  if (fonts.length === 0) return { added: 0, skipped: 0 }
+  const basePath = `Anime subtitles/${year}/${anime}`
+  const readmePath = `${basePath}/README.md`
+  const info = await fetchAnimeReadmeInfo(year, anime)
+  const subtitles = await fetchAnimeSubtitles(year, anime)
+  let added = 0
+  let skipped = 0
+  for (const font of fonts) {
+    const exists = info.fonts.some(f => f.name === font.name)
+    if (exists) {
+      skipped++
+      continue
+    }
+    info.fonts.push(font)
+    added++
+  }
+  if (added === 0) return { added, skipped }
+  const animeInfo = {
+    year,
+    folder: anime,
+    titleEn: anime,
+    titleCn: info.titleCn,
+    coverUrl: info.coverUrl,
+    languages: getSubtitleLanguages(subtitles, info.languages),
+    subtitles,
+    fonts: info.fonts,
+    subtitleType: info.subtitleType,
+  }
+  const newReadme = generateAnimeReadme(animeInfo)
+  await uploadFiles(
+    [{ path: readmePath, content: btoa(unescape(encodeURIComponent(newReadme))), encoding: 'base64' }],
+    `feat: 关联字体到 ${anime}`
+  )
+  return { added, skipped }
 }
 
 async function commitSubtitles() {
@@ -761,18 +898,60 @@ async function commitFonts() {
   }
   uploading.value = true
   try {
+    const existingFonts = await listR2Fonts().then(res => res.files || []).catch(() => [])
+    const existingMap = new Map(existingFonts.map(f => [f.name, f]))
+    const uploadedRefs: FontRef[] = []
+    let skippedUpload = 0
+
     for (const item of fontQueue.value) {
       item.status = 'uploading'
       try {
-        const file = new File([item.content], item.originalName)
-        await uploadFontToR2(file)
+        const existing = existingMap.get(item.originalName)
+        if (existing) {
+          skippedUpload++
+          uploadedRefs.push({
+            name: existing.name,
+            path: existing.key,
+            downloadUrl: existing.downloadUrl,
+            displayName: existing.fontName || existing.name.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
+          })
+        } else {
+          const file = new File([item.content], item.originalName)
+          const result = await uploadFontToR2(file)
+          uploadedRefs.push({
+            name: item.originalName,
+            path: result.key,
+            downloadUrl: result.downloadUrl,
+            displayName: result.fontName || item.originalName.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
+          })
+        }
         item.status = 'done'
       } catch (err: any) {
         item.status = 'error'
         item.error = err.message
       }
     }
-    message.success('字体上传完成')
+
+    let linkedMsg = ''
+    if (fontLinkYear.value && fontLinkAnime.value && uploadedRefs.length > 0) {
+      let r2Domain = ''
+      try {
+        const { domain } = await getR2Domain()
+        if (domain) r2Domain = domain.replace(/\/$/, '')
+      } catch {
+        // noop
+      }
+      const refs = uploadedRefs.map(font => ({
+        ...font,
+        downloadUrl: font.downloadUrl || (r2Domain ? `${r2Domain}/fonts/${encodeURIComponent(font.name)}` : ''),
+      })).filter(font => font.downloadUrl || !font.path.startsWith('fonts/'))
+      const result = await linkFontsToAnime(refs, fontLinkYear.value, fontLinkAnime.value)
+      linkedMsg = `，关联 ${result.added} 个字体`
+      if (result.skipped > 0) linkedMsg += `，跳过 ${result.skipped} 个已关联`
+    }
+
+    const successCount = fontQueue.value.filter(item => item.status === 'done').length
+    message.success(`字体处理完成：${successCount} 个成功${skippedUpload > 0 ? `，跳过上传 ${skippedUpload} 个已存在` : ''}${linkedMsg}`)
     fontQueue.value = []
   } finally {
     uploading.value = false
