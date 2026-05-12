@@ -115,6 +115,7 @@
 
           <n-space align="center">
             <n-checkbox v-model:checked="fontPackageMode">作为字体压缩包上传</n-checkbox>
+            <n-checkbox v-model:checked="fontPackageMultipartMode">大文件分片上传</n-checkbox>
           </n-space>
 
           <div
@@ -263,6 +264,7 @@ const uploading = ref(false)
 const isDragging = ref(false)
 const isFontDragging = ref(false)
 const fontPackageMode = ref(false)
+const fontPackageMultipartMode = ref(false)
 const subtitleFileInput = ref<HTMLInputElement | null>(null)
 const fontFileInput = ref<HTMLInputElement | null>(null)
 
@@ -1043,7 +1045,7 @@ async function commitSubtitles() {
 const FONT_PACKAGE_MULTIPART_THRESHOLD = 50 * 1024 * 1024
 
 function shouldUseMultipartUpload(item: QueueItem): boolean {
-  return item.path.startsWith('font-packages/') && item.content.byteLength >= FONT_PACKAGE_MULTIPART_THRESHOLD
+  return item.path.startsWith('font-packages/') && (fontPackageMultipartMode.value || item.content.byteLength >= FONT_PACKAGE_MULTIPART_THRESHOLD)
 }
 
 function getQueueFailureMessage(items: QueueItem[]): string {

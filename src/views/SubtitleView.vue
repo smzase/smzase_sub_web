@@ -20,7 +20,11 @@
               </n-space>
             </template>
             <n-list bordered>
-              <n-list-item v-for="anime in animeByYear[year]" :key="anime.folder">
+              <n-list-item
+                v-for="anime in animeByYear[year]"
+                :key="anime.folder"
+                :class="{ 'anime-list-item--expanded': expandedAnime === `${year}/${anime.folder}` }"
+              >
                 <n-thing>
                   <template #header>
                     <span style="cursor: pointer;" @click="toggleAnimeDetail(year, anime.folder)">
@@ -195,6 +199,7 @@ const checkedFonts = ref<string[]>([])
 const confirmFontBatchRemove = ref(false)
 const removingFontName = ref('')
 const fontBatchRemoving = ref(false)
+const removingFontPackageName = ref('')
 const yearReadmeLoading = ref('')
 const rootReadmeLoading = ref(false)
 const animeReadmeLoading = ref('')
@@ -239,10 +244,17 @@ const fontPackageColumns: DataTableColumns<FontPackageRef> = [
     render: (row) => h(NTag, { type: 'success', bordered: false }, { default: () => row.name }),
   },
   {
-    title: '下载', key: 'downloadUrl', width: 80,
-    render: (row) => row.downloadUrl
-      ? h(NButton, { size: 'tiny', type: 'success', text: true, tag: 'a', href: row.downloadUrl, target: '_blank' }, { default: () => '下载' })
-      : '-',
+    title: '操作', key: 'actions', width: 80,
+    render: (row) => h(NPopconfirm, {
+      onPositiveClick: () => doRemoveFontPackage(row),
+    }, {
+      trigger: () => h(NButton, {
+        size: 'tiny', type: 'error', text: true,
+        loading: removingFontPackageName.value === row.name,
+        disabled: !!removingFontPackageName.value,
+      }, { default: () => '移除' }),
+      default: () => `确认移除 ${row.name}?`,
+    }),
   },
 ]
 
@@ -274,6 +286,24 @@ function onCheckChange(keys: string[]) {
 function onFontCheckChange(keys: string[]) {
   checkedFonts.value = keys
   confirmFontBatchRemove.value = false
+}
+
+async function doRemoveFontPackage(pkg: FontPackageRef) {
+  if (!animeDetail.value) return
+  const oldPackages = [...(animeDetail.value.fontPackages || [])]
+  removingFontPackageName.value = pkg.name
+  const removeMessage = message.loading(`正在移除 ${pkg.name}...`, { duration: 0 })
+  try {
+    animeDetail.value.fontPackages = oldPackages.filter(f => f.name !== pkg.name)
+    await updateReadme()
+    message.success(`已移除 ${pkg.name}`)
+  } catch (err: any) {
+    animeDetail.value.fontPackages = oldPackages
+    message.error(`移除失败: ${err.message}`)
+  } finally {
+    removeMessage.destroy()
+    removingFontPackageName.value = ''
+  }
 }
 
 async function doRemoveFont(font: FontRef) {
@@ -806,3 +836,14 @@ onMounted(() => {
   if (getToken()) loadData()
 })
 </script>
+
+<style scoped>
+:deep(.anime-list-item--expanded > .n-list-item__main > .n-thing > .n-thing-main > .n-thing-avatar-header-wrapper) {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 8px 0;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+</style>
