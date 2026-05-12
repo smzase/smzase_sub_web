@@ -236,3 +236,7 @@ export async function deleteFontFromR2(key: string): Promise<any> {
 export async function listR2Fonts(): Promise<{ files: Array<{ name: string; key: string; size: number; downloadUrl: string; fontName: string }> }> {
   return apiFetch('fonts/list')
 }
+
+export async function listR2FontPackages(): Promise<{ files: Array<{ name: string; key: string; size: number; downloadUrl: string; fontName: string }> }> {
+  return apiFetch('font-packages/list')
+}

@@ -34,6 +34,13 @@ export function downloadUrl(path: string, branch = 'main'): string {
   return rawUrl(path, branch)
 }
 
+export async function getFileText(path: string): Promise<string> {
+  const content = await getContents(path)
+  if (!content || Array.isArray(content) || !content.content) return ''
+  const normalized = content.content.replace(/\n/g, '')
+  return decodeURIComponent(escape(atob(normalized)))
+}
+
 export function readmeUrl(path: string, branch = 'main'): string {
   return rawUrl(path, branch) + `?_t=${Date.now()}`
 }

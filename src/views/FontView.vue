@@ -3,9 +3,13 @@
     <n-card title="字体列表">
       <template #header-extra>
         <n-space size="small" align="center">
+          <n-radio-group v-model:value="listMode" size="small" @update:value="onListModeChange">
+            <n-radio-button value="fonts">字体</n-radio-button>
+            <n-radio-button value="packages">压缩包</n-radio-button>
+          </n-radio-group>
           <n-input
             v-model:value="searchKeyword"
-            placeholder="搜索字体..."
+            :placeholder="listMode === 'packages' ? '搜索压缩包...' : '搜索字体...'"
             clearable
             size="small"
             style="width: 200px;"
@@ -15,7 +19,7 @@
       </template>
 
       <n-spin :show="loading">
-        <n-empty v-if="!loading && fonts.length === 0" description="暂无字体数据" />
+        <n-empty v-if="!loading && fonts.length === 0" :description="listMode === 'packages' ? '暂无字体压缩包数据' : '暂无字体数据'" />
 
         <n-data-table
           v-if="fonts.length > 0"
@@ -29,11 +33,11 @@
 
         <n-space v-if="checkedFonts.length > 0" justify="center" style="margin-top: 12px;">
           <n-text depth="3">已选 {{ checkedFonts.length }} 项</n-text>
-          <n-button size="tiny" type="info" @click="batchLink">批量关联到动画</n-button>
-          <n-button size="tiny" type="error" @click="confirmBatchDelete = true">批量删除</n-button>
+          <n-button size="tiny" type="info" @click="batchLink">批量关联{{ itemLabel }}到动画</n-button>
+          <n-button size="tiny" type="error" @click="confirmBatchDelete = true">批量删除{{ itemLabel }}</n-button>
         </n-space>
         <n-space v-if="confirmBatchDelete" justify="center" style="margin-top: 8px;">
-          <n-text type="error" style="font-size: 12px;">确认删除 {{ checkedFonts.length }} 个字体?</n-text>
+          <n-text type="error" style="font-size: 12px;">确认删除 {{ checkedFonts.length }} 个{{ itemLabel }}?</n-text>
           <n-button size="tiny" type="error" :loading="batchDeleting" :disabled="batchDeleting" @click="doBatchDelete">确认</n-button>
           <n-button size="tiny" :disabled="batchDeleting" @click="confirmBatchDelete = false">取消</n-button>
         </n-space>
@@ -68,10 +72,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, h } from 'vue'
-import { NButton, NSpace, NPopconfirm, useMessage } from 'naive-ui'
+import { NButton, NSpace, NPopconfirm, NRadioGroup, NRadioButton, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import { getContents, readmeUrl, getToken, uploadFiles, deleteFile, downloadUrl } from '../utils/github'
-import { deleteFontFromR2, listR2Fonts, getR2Domain } from '../utils/api'
+import { getContents, getFileText, getToken, uploadFiles, deleteFile, downloadUrl } from '../utils/github'
+import { deleteFontFromR2, listR2Fonts, listR2FontPackages, getR2Domain } from '../utils/api'
 import { formatFileSize } from '../utils/rename'
 import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
 
@@ -86,6 +90,7 @@ interface FontItem {
 const message = useMessage()
 const loading = ref(false)
 const linking = ref(false)
+const listMode = ref<'fonts' | 'packages'>('fonts')
 const fonts = ref<FontItem[]>([])
 const searchKeyword = ref('')
 const showLinkModal = ref(false)
@@ -109,9 +114,11 @@ const filteredFonts = computed(() => {
   return fonts.value.filter(f => f.name.toLowerCase().includes(kw) || f.fontName.toLowerCase().includes(kw))
 })
 
+const itemLabel = computed(() => listMode.value === 'packages' ? '压缩包' : '字体')
+
 const columns: DataTableColumns<FontItem> = [
   { type: 'selection' },
-  { title: '字体名', key: 'fontName', ellipsis: { tooltip: true } },
+  { title: () => listMode.value === 'packages' ? '压缩包名' : '字体名', key: 'fontName', ellipsis: { tooltip: true } },
   { title: '文件名', key: 'name', ellipsis: { tooltip: true } },
   { title: '大小', key: 'size', width: 120, render: (row) => formatFileSize(row.size) },
   {
@@ -121,7 +128,7 @@ const columns: DataTableColumns<FontItem> = [
         h(NButton, {
           size: 'tiny', type: 'info', text: true,
           onClick: () => openLinkModal(row),
-        }, { default: () => '关联到动画' }),
+        }, { default: () => listMode.value === 'packages' ? '关联到动画' : '关联到动画' }),
         h(NPopconfirm, {
           onPositiveClick: () => doDeleteFont(row),
         }, {
@@ -142,9 +149,23 @@ function onCheckChange(keys: string[]) {
   confirmBatchDelete.value = false
 }
 
+function onListModeChange() {
+  checkedFonts.value = []
+  confirmBatchDelete.value = false
+  searchKeyword.value = ''
+  loadFonts()
+}
+
 async function loadFonts() {
   loading.value = true
   try {
+    if (listMode.value === 'packages') {
+      const result = await listR2FontPackages()
+      fonts.value = result.files
+      await loadYears()
+      return
+    }
+
     const result = await listR2Fonts()
     fonts.value = result.files
 
@@ -167,7 +188,7 @@ async function loadFonts() {
 
     await loadYears()
   } catch (err: any) {
-    message.error(`加载字体列表失败: ${err.message}`)
+    message.error(`加载${itemLabel.value}列表失败: ${err.message}`)
   } finally {
     loading.value = false
   }
@@ -219,7 +240,7 @@ async function doDeleteFont(font: FontItem) {
   deletingFontKey.value = font.key
   const deleteMessage = message.loading(`正在删除 ${font.name}...`, { duration: 0 })
   try {
-    if (font.key.startsWith('fonts/')) {
+    if (font.key.startsWith('fonts/') || font.key.startsWith('font-packages/')) {
       await deleteFontFromR2(font.key)
     } else {
       await deleteFile(font.key, `chore: 删除字体 ${font.name}`)
@@ -242,7 +263,7 @@ async function doBatchDelete() {
     for (const key of checkedFonts.value) {
       const font = fonts.value.find(f => f.key === key)
       if (font) {
-        if (font.key.startsWith('fonts/')) {
+        if (font.key.startsWith('fonts/') || font.key.startsWith('font-packages/')) {
           await deleteFontFromR2(font.key)
         } else {
           await deleteFile(font.key, `chore: 删除字体 ${font.name}`)
@@ -273,10 +294,8 @@ async function linkFontToAnime() {
     const readmePath = `${basePath}/README.md`
 
     let readmeContent = ''
-    const rUrl = readmeUrl(`${basePath}/README.md`)
     try {
-      const res = await fetch(rUrl)
-      if (res.ok) readmeContent = await res.text()
+      readmeContent = await getFileText(`${basePath}/README.md`)
     } catch {
       // noop
     }
@@ -294,34 +313,61 @@ async function linkFontToAnime() {
     const addedNames: string[] = []
     const skippedNames: string[] = []
 
-    for (const font of selectedFonts.value) {
-      const alreadyExists = parsed.fonts.some((f) => f.name === font.name)
-      if (alreadyExists) {
-        skippedNames.push(font.name)
-        continue
-      }
+    if (listMode.value === 'packages') {
+      for (const pkg of selectedFonts.value) {
+        const alreadyExists = parsed.fontPackages.some((f) => f.name === pkg.name)
+        if (alreadyExists) {
+          skippedNames.push(pkg.name)
+          continue
+        }
 
-      let fontDl = font.downloadUrl
-      if (font.key.startsWith('fonts/') && !fontDl && r2Domain) {
-        fontDl = `${r2Domain}/fonts/${encodeURIComponent(font.name)}`
-      }
+        let pkgDl = pkg.downloadUrl
+        if (pkg.key.startsWith('font-packages/') && !pkgDl && r2Domain) {
+          pkgDl = `${r2Domain}/font-packages/${encodeURIComponent(pkg.name)}`
+        }
 
-      if (font.key.startsWith('fonts/') && !fontDl) {
-        message.warning(`字体 ${font.name} 缺少下载链接，请先配置 R2 域名`)
-        continue
-      }
+        if (pkg.key.startsWith('font-packages/') && !pkgDl) {
+          message.warning(`压缩包 ${pkg.name} 缺少下载链接，请先配置 R2 域名`)
+          continue
+        }
 
-      parsed.fonts.push({
-        name: font.name,
-        path: font.key.startsWith('fonts/') ? font.key : `Fonts/${font.name}`,
-        downloadUrl: fontDl,
-        displayName: font.fontName || font.name.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
-      })
-      addedNames.push(font.name)
+        parsed.fontPackages.push({
+          name: pkg.name,
+          path: pkg.key,
+          downloadUrl: pkgDl,
+        })
+        addedNames.push(pkg.name)
+      }
+    } else {
+      for (const font of selectedFonts.value) {
+        const alreadyExists = parsed.fonts.some((f) => f.name === font.name)
+        if (alreadyExists) {
+          skippedNames.push(font.name)
+          continue
+        }
+
+        let fontDl = font.downloadUrl
+        if (font.key.startsWith('fonts/') && !fontDl && r2Domain) {
+          fontDl = `${r2Domain}/fonts/${encodeURIComponent(font.name)}`
+        }
+
+        if (font.key.startsWith('fonts/') && !fontDl) {
+          message.warning(`字体 ${font.name} 缺少下载链接，请先配置 R2 域名`)
+          continue
+        }
+
+        parsed.fonts.push({
+          name: font.name,
+          path: font.key.startsWith('fonts/') ? font.key : `Fonts/${font.name}`,
+          downloadUrl: fontDl,
+          displayName: font.fontName || font.name.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
+        })
+        addedNames.push(font.name)
+      }
     }
 
     if (addedNames.length === 0) {
-      message.info(skippedNames.length > 0 ? '所选字体均已关联到此动画' : '没有可关联的字体')
+      message.info(skippedNames.length > 0 ? `所选${itemLabel.value}均已关联到此动画` : `没有可关联的${itemLabel.value}`)
       showLinkModal.value = false
       return
     }
@@ -345,7 +391,7 @@ async function linkFontToAnime() {
       year: linkForm.value.year,
       folder: linkForm.value.anime,
       titleEn: linkForm.value.anime,
-      titleCn: parsed.titleCn,
+      titleCn: parsed.titleCn || linkForm.value.anime,
       coverUrl: parsed.coverUrl,
       languages: parsed.languages,
       subtitles,
@@ -361,7 +407,7 @@ async function linkFontToAnime() {
       `feat: 关联字体 ${addedNames.join(', ')} 到 ${linkForm.value.anime}`
     )
 
-    let msg = `已关联 ${addedNames.length} 个字体`
+    let msg = `已关联 ${addedNames.length} 个${itemLabel.value}`
     if (skippedNames.length > 0) msg += `，跳过 ${skippedNames.length} 个已关联`
     message.success(msg)
     showLinkModal.value = false

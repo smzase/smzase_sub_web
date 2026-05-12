@@ -477,5 +477,22 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ files })
   }
 
+  if (path === 'font-packages/list' && request.method === 'GET') {
+    const listed = await env.R2.list({ prefix: 'font-packages/' })
+    const domain = (await env.subKV.get('config:r2_domain')) || ''
+    const files = listed.objects.map(obj => {
+      const rawName = obj.key.replace('font-packages/', '')
+      const name = decodeURIComponent(rawName)
+      return {
+        name,
+        key: obj.key,
+        size: obj.size,
+        downloadUrl: domain ? `${domain.replace(/\/$/, '')}/font-packages/${encodeURIComponent(name)}` : '',
+        fontName: name.replace(/\.(zip|7z|rar)$/i, ''),
+      }
+    })
+    return jsonResponse({ files })
+  }
+
   return jsonResponse({ error: 'Not Found' }, 404)
 }

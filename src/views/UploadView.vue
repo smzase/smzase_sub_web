@@ -115,10 +115,6 @@
 
           <n-space align="center">
             <n-checkbox v-model:checked="fontPackageMode">作为字体压缩包上传</n-checkbox>
-            <n-checkbox v-model:checked="fontPackageMultipartMode">大文件分片上传</n-checkbox>
-            <n-text depth="3" style="font-size: 12px;">
-              勾选分片上传可上传较大的 ZIP/7Z/RAR，适合 160MB 这类字体整合包
-            </n-text>
           </n-space>
 
           <div
@@ -243,7 +239,7 @@ import { NTag, NButton, NSpace, NProgress, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
-import { uploadFiles, getToken, getContents, readmeUrl, rawUrl, downloadUrl } from '../utils/github'
+import { uploadFiles, getToken, getContents, rawUrl, downloadUrl, getFileText } from '../utils/github'
 import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, listR2Fonts, getR2Domain } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
@@ -267,7 +263,6 @@ const uploading = ref(false)
 const isDragging = ref(false)
 const isFontDragging = ref(false)
 const fontPackageMode = ref(false)
-const fontPackageMultipartMode = ref(false)
 const subtitleFileInput = ref<HTMLInputElement | null>(null)
 const fontFileInput = ref<HTMLInputElement | null>(null)
 
@@ -787,10 +782,8 @@ async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; fontPackag
   if (!selectedYear.value || !template.value.titleEn) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
   const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
   try {
-    const rUrl = readmeUrl(`${basePath}/README.md`)
-    const res = await fetch(rUrl)
-    if (!res.ok) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
-    const text = await res.text()
+    const text = await getFileText(`${basePath}/README.md`)
+    if (!text) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
     const parsed = parseAnimeReadme(text)
     return {
       fonts: parsed.fonts,
@@ -833,10 +826,9 @@ async function fetchAnimeSubtitles(year: string, anime: string): Promise<Subtitl
 async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ fonts: FontRef[]; fontPackages: FontPackageRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
   const basePath = `Anime subtitles/${year}/${anime}`
   try {
-    const rUrl = readmeUrl(`${basePath}/README.md`)
-    const res = await fetch(rUrl)
-    if (!res.ok) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
-    const parsed = parseAnimeReadme(await res.text())
+    const text = await getFileText(`${basePath}/README.md`)
+    if (!text) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    const parsed = parseAnimeReadme(text)
     return {
       fonts: parsed.fonts,
       fontPackages: parsed.fontPackages,
@@ -1048,6 +1040,12 @@ async function commitSubtitles() {
   }
 }
 
+const FONT_PACKAGE_MULTIPART_THRESHOLD = 50 * 1024 * 1024
+
+function shouldUseMultipartUpload(item: QueueItem): boolean {
+  return item.path.startsWith('font-packages/') && item.content.byteLength >= FONT_PACKAGE_MULTIPART_THRESHOLD
+}
+
 function getQueueFailureMessage(items: QueueItem[]): string {
   const failed = items.filter(item => item.status === 'error')
   if (failed.length === 0) return ''
@@ -1076,7 +1074,7 @@ async function commitFonts() {
         item.progress = 0
         try {
           const file = new File([item.content], item.newName)
-          const uploader = fontPackageMultipartMode.value ? uploadFontPackageMultipartToR2 : uploadFontPackageToR2
+          const uploader = shouldUseMultipartUpload(item) ? uploadFontPackageMultipartToR2 : uploadFontPackageToR2
           const result = await uploader(file, { onProgress: (percent) => { item.progress = percent } })
           uploadedPackages.push({
             name: item.newName,

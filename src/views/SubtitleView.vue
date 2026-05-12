@@ -152,7 +152,7 @@ import { ref, h, onMounted } from 'vue'
 import { NButton, NSpace, NPopconfirm, NTag, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
-import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
+import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, getFileText } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
 import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles } from '../utils/api'
 
@@ -237,6 +237,12 @@ const fontPackageColumns: DataTableColumns<FontPackageRef> = [
   {
     title: '字体整合包', key: 'name',
     render: (row) => h(NTag, { type: 'success', bordered: false }, { default: () => row.name }),
+  },
+  {
+    title: '下载', key: 'downloadUrl', width: 80,
+    render: (row) => row.downloadUrl
+      ? h(NButton, { size: 'tiny', type: 'success', text: true, tag: 'a', href: row.downloadUrl, target: '_blank' }, { default: () => '下载' })
+      : '-',
   },
 ]
 
@@ -518,10 +524,8 @@ async function refreshAnimeReadme(year: string, folder: string) {
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
-      const rUrl = readmeUrl(`${basePath}/README.md`)
-      const res = await fetch(rUrl)
-      if (res.ok) {
-        const text = await res.text()
+      const text = await getFileText(`${basePath}/README.md`)
+      if (text) {
         const parsed = parseAnimeReadme(text)
         titleCn = parsed.titleCn
         coverUrl = parsed.coverUrl
@@ -732,10 +736,8 @@ async function toggleAnimeDetail(year: string, folder: string) {
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
-      const rUrl = readmeUrl(`${basePath}/README.md`)
-        const res = await fetch(rUrl)
-      if (res.ok) {
-        const text = await res.text()
+      const text = await getFileText(`${basePath}/README.md`)
+      if (text) {
         const parsed = parseAnimeReadme(text)
         titleCn = parsed.titleCn
         coverUrl = parsed.coverUrl
