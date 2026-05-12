@@ -834,6 +834,18 @@ onMounted(() => {
 </script>
 
 <style scoped>
+:deep(.n-collapse-item__content-wrapper) {
+  overflow: visible !important;
+}
+
+:deep(.n-collapse-item__content-inner) {
+  padding-top: 0 !important;
+}
+
+:deep(.n-list) {
+  overflow: visible !important;
+}
+
 :deep(.n-list-item) {
   position: relative;
 }
@@ -841,7 +853,9 @@ onMounted(() => {
 :deep(.n-thing-header) {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 100;
   background: white;
+  padding: 8px 0;
+  margin: -8px 0 0 0;
 }
 </style>
