@@ -344,6 +344,23 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ success: true })
   }
 
+  if (path === 'subtitle-language-config' && request.method === 'GET') {
+    const raw = await env.subKV.get('subtitleLanguage:config')
+    return jsonResponse({ config: raw ? JSON.parse(raw) : null })
+  }
+
+  if (path === 'subtitle-language-config' && request.method === 'POST') {
+    const body = await request.json() as { config: { hans: string; hant: string } | null }
+    const hans = body.config?.hans?.trim() || 'zh-hans'
+    const hant = body.config?.hant?.trim() || 'zh-hant'
+    if (hans === 'zh-hans' && hant === 'zh-hant') {
+      await env.subKV.delete('subtitleLanguage:config')
+    } else {
+      await env.subKV.put('subtitleLanguage:config', JSON.stringify({ hans, hant }))
+    }
+    return jsonResponse({ success: true })
+  }
+
   if (path === 'episode-titles' && request.method === 'GET') {
     const raw = await env.subKV.get('episodeTitles:list')
     return jsonResponse({ episodeTitles: raw ? JSON.parse(raw) : {} })

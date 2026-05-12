@@ -93,6 +93,17 @@ export async function saveTemplates(templates: any[]): Promise<any> {
   })
 }
 
+export async function getSubtitleLanguageConfig(): Promise<{ config: { hans: string; hant: string } | null }> {
+  return apiFetch('subtitle-language-config')
+}
+
+export async function saveSubtitleLanguageConfig(config: { hans: string; hant: string }): Promise<any> {
+  return apiFetch('subtitle-language-config', {
+    method: 'POST',
+    body: JSON.stringify({ config }),
+  })
+}
+
 export async function getEpisodeTitles(): Promise<{ episodeTitles: Record<string, Record<string, string>> }> {
   return apiFetch('episode-titles')
 }

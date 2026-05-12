@@ -1,11 +1,23 @@
 import type { UploadTemplate } from '../types'
 
-export function parseOriginalName(filename: string): { episode: number; lang: string } | null {
-  const match = filename.match(/^(\d+)\.(zh-hans|zh-hant)\.ass$/i)
+export interface SubtitleLanguageConfig {
+  hans: string
+  hant: string
+}
+
+export function parseOriginalName(filename: string, config: SubtitleLanguageConfig = { hans: 'zh-hans', hant: 'zh-hant' }): { episode: number; lang: string } | null {
+  const aliases = [
+    { value: config.hans.trim(), lang: 'zh-hans' },
+    { value: config.hant.trim(), lang: 'zh-hant' },
+  ].filter(item => item.value)
+  const escaped = aliases.map(item => item.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const match = filename.match(new RegExp(`^(\\d+)\\.(${escaped.join('|')})\\.ass$`, 'i'))
   if (!match) return null
+  const matchedAlias = match[2].toLowerCase()
+  const matched = aliases.find(item => item.value.toLowerCase() === matchedAlias)
   return {
     episode: parseInt(match[1], 10),
-    lang: match[2].toLowerCase(),
+    lang: matched?.lang || matchedAlias,
   }
 }
 

@@ -30,7 +30,8 @@
               tag
               @update:value="onAnimeSelect"
             />
-            <n-button size="small" @click="showTemplateModal = true">模板</n-button>
+            <n-button size="small" @click="openTemplateModal">模板</n-button>
+            <n-button size="small" @click="openCurrentTemplateEditor">编辑</n-button>
           </n-space>
 
           <n-space v-if="currentAnimeLabel" align="center" size="small">
@@ -161,9 +162,42 @@
       </template>
     </n-card>
 
-    <n-modal v-model:show="showTemplateModal" preset="card" title="模板管理" style="width: 600px;">
-      <n-tabs type="line" style="margin-bottom: 16px;">
-        <n-tab-pane name="edit" tab="编辑当前模板">
+    <n-modal v-model:show="showTemplateModal" preset="card" title="模板管理" style="width: 720px;">
+      <n-tabs v-model:value="templateModalTab" type="line" style="margin-bottom: 16px;">
+        <n-tab-pane name="saved" tab="已保存模板">
+          <n-space justify="end" style="margin-bottom: 12px;">
+            <n-button size="small" type="primary" @click="openNewTemplate">新增模板</n-button>
+          </n-space>
+          <n-collapse v-if="savedTemplates.length > 0" :default-expanded-names="savedTemplateYears" accordion>
+            <n-collapse-item v-for="group in savedTemplatesByYear" :key="group.year" :name="group.year">
+              <template #header>
+                <div class="template-year-header">{{ group.year }} 年（{{ group.items.length }}）</div>
+              </template>
+              <n-list bordered>
+                <n-list-item v-for="item in group.items" :key="item.index">
+                  <n-thing>
+                    <template #header>{{ item.template.name || item.template.titleEn }}</template>
+                    <template #description>
+                      <n-text depth="3" style="font-size: 12px;">
+                        [{{ item.template.groupTag }}] {{ item.template.titleEn }} / {{ item.template.titleCn }} - S{{ String(item.template.season).padStart(2, '0') }} | {{ item.template.subtitleType === 'bilingual' ? '中日双语' : '单语' }}
+                      </n-text>
+                    </template>
+                  </n-thing>
+                  <template #suffix>
+                    <n-space size="small">
+                      <n-button size="tiny" type="primary" @click="loadTemplate(item.template)">加载</n-button>
+                      <n-button size="tiny" @click="editSavedTemplate(item.template, item.index)">编辑</n-button>
+                      <n-button size="tiny" type="error" :loading="deletingTemplateIndex === item.index" :disabled="deletingTemplateIndex !== null" @click="deleteTemplate(item.index)">删除</n-button>
+                    </n-space>
+                  </template>
+                </n-list-item>
+              </n-list>
+            </n-collapse-item>
+          </n-collapse>
+          <n-empty v-if="savedTemplates.length === 0" description="暂无保存的模板" />
+        </n-tab-pane>
+
+        <n-tab-pane name="edit" tab="编辑">
           <n-form label-placement="left" label-width="100">
             <n-form-item label="模板名称">
               <n-input v-model:value="template.name" placeholder="给模板起个名字，方便保存和识别" />
@@ -199,35 +233,20 @@
               </n-radio-group>
             </n-form-item>
             <n-form-item label="字幕语言">
-              <n-text depth="3">上传文件时自动从文件名识别 (.zh-hans. / .zh-hant.)</n-text>
+              <n-grid :cols="2" :x-gap="12" style="width: 100%;">
+                <n-grid-item>
+                  <n-input v-model:value="subtitleLanguageConfig.hans" placeholder="zh-hans" />
+                </n-grid-item>
+                <n-grid-item>
+                  <n-input v-model:value="subtitleLanguageConfig.hant" placeholder="zh-hant" />
+                </n-grid-item>
+              </n-grid>
             </n-form-item>
           </n-form>
           <n-text depth="3" style="font-size: 12px; display: block; margin-top: 4px;">
             命名预览: [{{ template.groupTag }}] {{ template.titleEn }} - S{{ String(template.season).padStart(2, '0') }}E01.zh-hans.ass
           </n-text>
           <n-button type="primary" block style="margin-top: 12px;" @click="applyTemplateAndSave">应用并保存</n-button>
-        </n-tab-pane>
-
-        <n-tab-pane name="saved" tab="已保存模板">
-          <n-list bordered v-if="savedTemplates.length > 0">
-            <n-list-item v-for="(t, idx) in savedTemplates" :key="idx">
-              <n-thing>
-                <template #header>{{ t.name || t.titleEn }}</template>
-                <template #description>
-                  <n-text depth="3" style="font-size: 12px;">
-                    [{{ t.groupTag }}] {{ t.titleEn }} / {{ t.titleCn }} - {{ t.year }} S{{ String(t.season).padStart(2, '0') }} | {{ t.subtitleType === 'bilingual' ? '中日双语' : '单语' }}
-                  </n-text>
-                </template>
-              </n-thing>
-              <template #suffix>
-                <n-space size="small">
-                  <n-button size="tiny" type="primary" @click="loadTemplate(t)">加载</n-button>
-                  <n-button size="tiny" type="error" :loading="deletingTemplateIndex === idx" :disabled="deletingTemplateIndex !== null" @click="deleteTemplate(idx)">删除</n-button>
-                </n-space>
-              </template>
-            </n-list-item>
-          </n-list>
-          <n-empty v-if="savedTemplates.length === 0" description="暂无保存的模板" />
         </n-tab-pane>
       </n-tabs>
     </n-modal>
@@ -240,8 +259,9 @@ import { NTag, NButton, NSpace, NProgress, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
+import type { SubtitleLanguageConfig } from '../utils/rename'
 import { uploadFiles, getToken, getContents, rawUrl, downloadUrl, getFileText } from '../utils/github'
-import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, listR2Fonts, getR2Domain } from '../utils/api'
+import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, getSubtitleLanguageConfig, saveSubtitleLanguageConfig, listR2Fonts, getR2Domain } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -257,6 +277,7 @@ interface QueueItem {
 }
 
 const CURRENT_TEMPLATE_KEY = 'smzase_current_template'
+const DEFAULT_SUBTITLE_LANGUAGE_CONFIG: SubtitleLanguageConfig = { hans: 'zh-hans', hant: 'zh-hant' }
 
 const message = useMessage()
 const uploadTab = ref('subtitle')
@@ -269,6 +290,7 @@ const subtitleFileInput = ref<HTMLInputElement | null>(null)
 const fontFileInput = ref<HTMLInputElement | null>(null)
 
 const showTemplateModal = ref(false)
+const templateModalTab = ref<'saved' | 'edit'>('saved')
 const yearLoading = ref(false)
 const animeLoading = ref(false)
 const selectedYear = ref<string | null>(null)
@@ -280,10 +302,12 @@ const fontLinkAnime = ref<string | null>(null)
 const fontLinkAnimeOptions = ref<SelectOption[]>([])
 const fontLinkAnimeLoading = ref(false)
 const deletingTemplateIndex = ref<number | null>(null)
+const editingTemplateIndex = ref<number | null>(null)
 
 const savedTemplates = ref<UploadTemplate[]>([])
 
 const detectedLanguages = ref<string[]>([])
+const subtitleLanguageConfig = ref<SubtitleLanguageConfig>({ ...DEFAULT_SUBTITLE_LANGUAGE_CONFIG })
 
 const template = ref<UploadTemplate>({
   name: '',
@@ -296,6 +320,20 @@ const template = ref<UploadTemplate>({
   languages: [],
   subtitleType: 'bilingual',
 })
+
+function createBlankTemplate(): UploadTemplate {
+  return {
+    name: '',
+    groupTag: 'smzase',
+    titleEn: '',
+    titleCn: '',
+    season: 1,
+    year: new Date().getFullYear().toString(),
+    coverUrl: '',
+    languages: [],
+    subtitleType: 'bilingual',
+  }
+}
 
 const subtitleQueue = ref<QueueItem[]>([])
 const fontQueue = ref<QueueItem[]>([])
@@ -312,6 +350,28 @@ const currentAnimeLabel = computed(() => {
 const canUploadSubtitles = computed(() => {
   return template.value.titleEn && template.value.year && getToken()
 })
+
+const savedTemplatesByYear = computed(() => {
+  const map = new Map<string, Array<{ template: UploadTemplate; index: number }>>()
+  savedTemplates.value.forEach((item, index) => {
+    const year = item.year || '未分类'
+    if (!map.has(year)) map.set(year, [])
+    map.get(year)!.push({ template: item, index })
+  })
+  return Array.from(map.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([year, items]) => ({
+      year,
+      items: items.sort((a, b) => (a.template.name || a.template.titleEn).localeCompare(b.template.name || b.template.titleEn, 'zh-Hans-CN')),
+    }))
+})
+
+const savedTemplateYears = computed(() => savedTemplatesByYear.value.map(group => group.year))
+
+const subtitleLanguageAliases = computed(() => ({
+  hans: subtitleLanguageConfig.value.hans.trim() || DEFAULT_SUBTITLE_LANGUAGE_CONFIG.hans,
+  hant: subtitleLanguageConfig.value.hant.trim() || DEFAULT_SUBTITLE_LANGUAGE_CONFIG.hant,
+}))
 
 const subtitleColumns: DataTableColumns<QueueItem> = [
   { title: '原始文件名', key: 'originalName', width: 200 },
@@ -398,11 +458,54 @@ function clearFontQueue() {
 function detectLanguagesFromQueue() {
   const langs = new Set<string>()
   for (const item of subtitleQueue.value) {
-    const parsed = parseOriginalName(item.originalName)
+    const parsed = parseOriginalName(item.originalName, subtitleLanguageAliases.value)
     if (parsed) langs.add(parsed.lang)
   }
   detectedLanguages.value = Array.from(langs)
   template.value.languages = detectedLanguages.value
+}
+
+async function loadSubtitleLanguageConfig() {
+  try {
+    const result = await getSubtitleLanguageConfig()
+    subtitleLanguageConfig.value = result.config
+      ? { ...DEFAULT_SUBTITLE_LANGUAGE_CONFIG, ...result.config }
+      : { ...DEFAULT_SUBTITLE_LANGUAGE_CONFIG }
+  } catch {
+    subtitleLanguageConfig.value = { ...DEFAULT_SUBTITLE_LANGUAGE_CONFIG }
+  }
+}
+
+async function persistSubtitleLanguageConfig() {
+  const config = subtitleLanguageAliases.value
+  await saveSubtitleLanguageConfig(config)
+}
+
+function openTemplateModal() {
+  templateModalTab.value = 'saved'
+  editingTemplateIndex.value = null
+  showTemplateModal.value = true
+}
+
+function openCurrentTemplateEditor() {
+  templateModalTab.value = 'edit'
+  editingTemplateIndex.value = null
+  showTemplateModal.value = true
+}
+
+function openNewTemplate() {
+  template.value = createBlankTemplate()
+  selectedYear.value = null
+  selectedAnime.value = null
+  detectedLanguages.value = []
+  editingTemplateIndex.value = null
+  templateModalTab.value = 'edit'
+}
+
+function editSavedTemplate(t: UploadTemplate, index: number) {
+  template.value = { ...t }
+  editingTemplateIndex.value = index
+  templateModalTab.value = 'edit'
 }
 
 async function loadSavedTemplates() {
@@ -437,15 +540,18 @@ async function saveTemplate() {
     return
   }
   const name = template.value.name || template.value.titleEn
-  const idx = savedTemplates.value.findIndex(t => (t.name || t.titleEn) === name)
   const copy = { ...template.value, name }
-  if (idx >= 0) {
-    savedTemplates.value[idx] = copy
+  if (editingTemplateIndex.value !== null && savedTemplates.value[editingTemplateIndex.value]) {
+    savedTemplates.value[editingTemplateIndex.value] = copy
   } else {
-    savedTemplates.value.push(copy)
+    const idx = savedTemplates.value.findIndex(t => (t.name || t.titleEn) === name)
+    if (idx >= 0) savedTemplates.value[idx] = copy
+    else savedTemplates.value.push(copy)
   }
   await persistTemplates()
+  await persistSubtitleLanguageConfig()
   message.success(`模板 "${name}" 已保存`)
+  editingTemplateIndex.value = null
 }
 
 async function applyTemplateAndSave() {
@@ -686,9 +792,9 @@ function processSubtitleFiles(files: File[]) {
       message.error(`不支持的文件格式: ${file.name}`)
       continue
     }
-    const parsed = parseOriginalName(file.name)
+    const parsed = parseOriginalName(file.name, subtitleLanguageAliases.value)
     if (!parsed) {
-      message.error(`文件名格式不正确: ${file.name}，期望格式: 01.zh-hans.ass`)
+      message.error(`文件名格式不正确: ${file.name}，期望格式: 01.${subtitleLanguageAliases.value.hans}.ass / 01.${subtitleLanguageAliases.value.hant}.ass`)
       continue
     }
     const newName = buildSubtitleName(template.value, parsed.episode, parsed.lang)
@@ -1211,6 +1317,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 onMounted(async () => {
   document.addEventListener('paste', onPaste)
+  await loadSubtitleLanguageConfig()
   await loadSavedTemplates()
   if (getToken()) loadYears()
 })
@@ -1222,6 +1329,10 @@ watch(template, () => {
 watch(fontPackageMode, () => {
   fontQueue.value = []
 })
+
+watch(subtitleLanguageConfig, () => {
+  detectLanguagesFromQueue()
+}, { deep: true })
 
 onUnmounted(() => {
   document.removeEventListener('paste', onPaste)
@@ -1244,5 +1355,13 @@ onUnmounted(() => {
 .drop-zone--active {
   border-color: #18a058;
   background-color: rgba(24, 160, 88, 0.08);
+}
+
+.template-year-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--n-color);
+  width: 100%;
 }
 </style>
