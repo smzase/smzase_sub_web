@@ -21,7 +21,7 @@
             </template>
             <n-list bordered>
               <n-list-item v-for="anime in animeByYear[year]" :key="anime.folder">
-                <n-thing>
+                <n-thing :ref="(el: any) => setThingRef(el, `${year}/${anime.folder}`)">
                   <template #header>
                     <span style="cursor: pointer;" @click="toggleAnimeDetail(year, anime.folder)">
                       {{ anime.folder }}
@@ -148,7 +148,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted } from 'vue'
+import { ref, h, onMounted, nextTick } from 'vue'
 import { NButton, NSpace, NPopconfirm, NTag, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
@@ -203,6 +203,15 @@ const showEpisodeTitleModal = ref(false)
 const savingEpisodeTitles = ref(false)
 const episodeTitleLoading = ref('')
 const episodeTitleList = ref<Array<{ episode: number; title: string }>>([])
+const thingRefs = new Map<string, any>()
+
+function setThingRef(el: any, key: string) {
+  if (el) {
+    thingRefs.set(key, el)
+  } else {
+    thingRefs.delete(key)
+  }
+}
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
   {
@@ -737,6 +746,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
   if (expandedAnime.value === key) {
     expandedAnime.value = ''
     animeDetail.value = null
+    removeHeaderSticky(key)
     return
   }
 
@@ -809,8 +819,10 @@ async function toggleAnimeDetail(year: string, folder: string) {
       fontPackages,
       subtitleType: subtitleType,
       episodeTitles,
-    }
-  } catch (err: any) {
+  }
+  await nextTick()
+  setupHeaderSticky(key)
+} catch (err: any) {
     message.error(`加载详情失败: ${err.message}`)
   } finally {
     detailLoading.value = false
@@ -828,34 +840,72 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
+function setupHeaderSticky(key: string) {
+  const thingEl = thingRefs.get(key)
+  if (!thingEl?.$el) return
+
+  const headerEl = thingEl.$el.querySelector('.n-thing-header')
+  if (!headerEl) return
+
+  const listItemEl = headerEl.closest('.n-list-item')
+  if (!listItemEl) return
+
+  let isFixed = false
+
+  const handleScroll = () => {
+    const rect = listItemEl.getBoundingClientRect()
+    const shouldFix = rect.top < 0 && rect.bottom > headerEl.offsetHeight
+
+    if (shouldFix && !isFixed) {
+      headerEl.style.position = 'fixed'
+      headerEl.style.top = '0'
+      headerEl.style.left = `${headerEl.getBoundingClientRect().left}px`
+      headerEl.style.width = `${headerEl.offsetWidth}px`
+      headerEl.style.zIndex = '100'
+      headerEl.style.background = 'white'
+      isFixed = true
+    } else if (!shouldFix && isFixed) {
+      headerEl.style.position = ''
+      headerEl.style.top = ''
+      headerEl.style.left = ''
+      headerEl.style.width = ''
+      headerEl.style.zIndex = ''
+      headerEl.style.background = ''
+      isFixed = false
+    }
+  }
+
+  window.addEventListener('scroll', handleScroll, { passive: true })
+  headerEl._scrollHandler = handleScroll
+}
+
+function removeHeaderSticky(key: string) {
+  const thingEl = thingRefs.get(key)
+  if (!thingEl?.$el) return
+
+  const headerEl = thingEl.$el.querySelector('.n-thing-header')
+  if (!headerEl) return
+
+  if (headerEl._scrollHandler) {
+    window.removeEventListener('scroll', headerEl._scrollHandler)
+    delete headerEl._scrollHandler
+  }
+
+  headerEl.style.position = ''
+  headerEl.style.top = ''
+  headerEl.style.left = ''
+  headerEl.style.width = ''
+  headerEl.style.zIndex = ''
+  headerEl.style.background = ''
+}
+
 onMounted(() => {
   if (getToken()) loadData()
 })
 </script>
 
 <style scoped>
-:deep(.n-collapse-item__content-wrapper) {
-  overflow: visible !important;
-}
-
-:deep(.n-collapse-item__content-inner) {
-  padding-top: 0 !important;
-}
-
-:deep(.n-list) {
-  overflow: visible !important;
-}
-
-:deep(.n-list-item) {
-  position: relative;
-}
-
 :deep(.n-thing-header) {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  background: white;
-  padding: 8px 0;
-  margin: -8px 0 0 0;
+  transition: none;
 }
 </style>
