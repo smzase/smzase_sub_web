@@ -441,6 +441,12 @@ function loadTemplate(t: UploadTemplate) {
   message.success(`已加载模板 "${t.name || t.titleEn}"`)
 }
 
+function findSavedTemplateForAnime(animeName: string, year: string | null): UploadTemplate | undefined {
+  return savedTemplates.value.find(t =>
+    t.titleEn === animeName && (!year || !t.year || t.year === year)
+  )
+}
+
 async function deleteTemplate(idx: number) {
   const name = savedTemplates.value[idx]?.name || savedTemplates.value[idx]?.titleEn
   savedTemplates.value.splice(idx, 1)
@@ -487,6 +493,7 @@ async function onYearSelect(year: string) {
 async function onAnimeSelect(animeName: string) {
   if (!animeName) return
   const isExisting = animeOptions.value.some(o => o.value === animeName)
+  const savedTemplate = findSavedTemplateForAnime(animeName, selectedYear.value)
   if (isExisting && selectedYear.value) {
     animeLoading.value = true
     try {
@@ -498,19 +505,21 @@ async function onAnimeSelect(animeName: string) {
         const parsed = parseAnimeReadme(text)
         template.value = {
           ...template.value,
-          name: animeName,
+          ...savedTemplate,
+          name: savedTemplate?.name || savedTemplate?.titleCn || parsed.titleCn || animeName,
           titleEn: animeName,
-          titleCn: parsed.titleCn,
+          titleCn: savedTemplate?.titleCn || parsed.titleCn,
           year: selectedYear.value,
-          coverUrl: parsed.coverUrl,
-          languages: parsed.languages,
-          subtitleType: parsed.subtitleType || 'bilingual',
+          coverUrl: savedTemplate?.coverUrl || parsed.coverUrl,
+          languages: parsed.languages.length > 0 ? parsed.languages : (savedTemplate?.languages || []),
+          subtitleType: savedTemplate?.subtitleType || parsed.subtitleType || 'bilingual',
         }
-        detectedLanguages.value = parsed.languages
+        detectedLanguages.value = template.value.languages
       } else {
         template.value = {
           ...template.value,
-          name: animeName,
+          ...savedTemplate,
+          name: savedTemplate?.name || savedTemplate?.titleCn || animeName,
           titleEn: animeName,
           year: selectedYear.value,
         }
@@ -518,7 +527,8 @@ async function onAnimeSelect(animeName: string) {
     } catch {
       template.value = {
         ...template.value,
-        name: animeName,
+        ...savedTemplate,
+        name: savedTemplate?.name || savedTemplate?.titleCn || animeName,
         titleEn: animeName,
         year: selectedYear.value,
       }
@@ -528,7 +538,8 @@ async function onAnimeSelect(animeName: string) {
   } else {
     template.value = {
       ...template.value,
-      name: animeName,
+      ...savedTemplate,
+      name: savedTemplate?.name || savedTemplate?.titleCn || animeName,
       titleEn: animeName,
       year: selectedYear.value || template.value.year,
     }
