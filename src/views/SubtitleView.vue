@@ -20,11 +20,7 @@
               </n-space>
             </template>
             <n-list bordered>
-              <n-list-item
-                v-for="anime in animeByYear[year]"
-                :key="anime.folder"
-                :class="{ 'subtitle-list-item--expanded': expandedAnime === `${year}/${anime.folder}` }"
-              >
+              <n-list-item v-for="anime in animeByYear[year]" :key="anime.folder">
                 <n-thing>
                   <template #header>
                     <span style="cursor: pointer;" @click="toggleAnimeDetail(year, anime.folder)">
@@ -838,13 +834,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-:deep(.subtitle-list-item--expanded > .n-thing > .n-thing-main) {
+:deep(.n-list-item) {
+  position: relative;
+}
+
+:deep(.n-thing-header) {
   position: sticky;
   top: 0;
-  z-index: 999;
-  padding: 8px 12px;
-  margin: -8px -12px 8px;
-  background: var(--n-color);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  z-index: 10;
+  background: white;
 }
 </style>
