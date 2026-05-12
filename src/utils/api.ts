@@ -108,11 +108,30 @@ interface UploadProgressOptions {
   onProgress?: (percent: number) => void
 }
 
+interface MultipartPartRef {
+  partNumber: number
+  etag: string
+}
+
+interface MultipartUploadResult {
+  success: boolean
+  key: string
+  downloadUrl: string
+}
+
+function contentTypeForFile(name: string): string {
+  if (/\.zip$/i.test(name)) return 'application/zip'
+  if (/\.7z$/i.test(name)) return 'application/x-7z-compressed'
+  if (/\.rar$/i.test(name)) return 'application/vnd.rar'
+  return 'application/octet-stream'
+}
+
 function uploadFileWithProgress<T>(path: string, file: File, fallbackError: string, options?: UploadProgressOptions): Promise<T> {
   const token = getSessionToken()
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE}/${path}`)
+    xhr.setRequestHeader('Content-Type', contentTypeForFile(file.name))
     xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name))
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     xhr.upload.onprogress = (event) => {
@@ -152,6 +171,59 @@ export async function uploadFontToR2(file: File, options?: UploadProgressOptions
 
 export async function uploadFontPackageToR2(file: File, options?: UploadProgressOptions): Promise<{ success: boolean; key: string; downloadUrl: string }> {
   return uploadFileWithProgress('font-packages/upload', file, 'Upload failed', options)
+}
+
+async function uploadMultipartPart(fileName: string, uploadId: string, partNumber: number, chunk: Blob): Promise<MultipartPartRef> {
+  const token = getSessionToken()
+  const res = await fetch(`${API_BASE}/font-packages/multipart/part`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-File-Name': encodeURIComponent(fileName),
+      'X-Upload-Id': uploadId,
+      'X-Part-Number': String(partNumber),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: chunk,
+  })
+  const data = await res.json()
+  if (res.status === 401) {
+    clearSession()
+    throw new Error('Unauthorized')
+  }
+  if (!res.ok) throw new Error(data.error || `分片上传失败 ${partNumber}`)
+  return data
+}
+
+export async function uploadFontPackageMultipartToR2(file: File, options?: UploadProgressOptions): Promise<MultipartUploadResult> {
+  const partSize = 8 * 1024 * 1024
+  const init = await apiFetch('font-packages/multipart/init', {
+    method: 'POST',
+    body: JSON.stringify({ fileName: file.name, contentType: contentTypeForFile(file.name) }),
+  }) as { key: string; uploadId: string }
+  const parts: MultipartPartRef[] = []
+  try {
+    const totalParts = Math.ceil(file.size / partSize)
+    for (let index = 0; index < totalParts; index++) {
+      const start = index * partSize
+      const end = Math.min(start + partSize, file.size)
+      const part = await uploadMultipartPart(file.name, init.uploadId, index + 1, file.slice(start, end))
+      parts.push(part)
+      options?.onProgress?.(Math.min(99, Math.round((end / file.size) * 100)))
+    }
+    const result = await apiFetch('font-packages/multipart/complete', {
+      method: 'POST',
+      body: JSON.stringify({ fileName: file.name, uploadId: init.uploadId, parts }),
+    }) as MultipartUploadResult
+    options?.onProgress?.(100)
+    return result
+  } catch (err) {
+    await apiFetch('font-packages/multipart/abort', {
+      method: 'POST',
+      body: JSON.stringify({ fileName: file.name, uploadId: init.uploadId }),
+    }).catch(() => undefined)
+    throw err
+  }
 }
 
 export async function deleteFontFromR2(key: string): Promise<any> {

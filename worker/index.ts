@@ -184,7 +184,7 @@ function corsHeaders(): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-File-Name',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-File-Name, X-Upload-Id, X-Part-Number',
   }
 }
 
@@ -377,14 +377,56 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const contentType = request.headers.get('Content-Type') || 'application/octet-stream'
     const fileName = decodeURIComponent(request.headers.get('X-File-Name') || 'unknown.zip')
     const key = `font-packages/${fileName}`
-    const bodyBuffer = await request.arrayBuffer()
-    await env.R2.put(key, bodyBuffer, {
+    await env.R2.put(key, request.body, {
       httpMetadata: { contentType },
       customMetadata: { originalName: fileName },
     })
     const domain = (await env.subKV.get('config:r2_domain')) || ''
     const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/font-packages/${encodeURIComponent(fileName)}` : ''
     return jsonResponse({ success: true, key, downloadUrl })
+  }
+
+  if (path === 'font-packages/multipart/init' && request.method === 'POST') {
+    const body = await request.json() as { fileName: string; contentType?: string }
+    if (!body.fileName) return jsonResponse({ error: 'Missing fileName' }, 400)
+    const fileName = body.fileName
+    const key = `font-packages/${fileName}`
+    const upload = await env.R2.createMultipartUpload(key, {
+      httpMetadata: { contentType: body.contentType || 'application/octet-stream' },
+      customMetadata: { originalName: fileName },
+    })
+    return jsonResponse({ key, uploadId: upload.uploadId })
+  }
+
+  if (path === 'font-packages/multipart/part' && request.method === 'POST') {
+    const fileName = decodeURIComponent(request.headers.get('X-File-Name') || '')
+    const uploadId = request.headers.get('X-Upload-Id') || ''
+    const partNumber = Number(request.headers.get('X-Part-Number') || '0')
+    if (!fileName || !uploadId || !partNumber) return jsonResponse({ error: 'Missing multipart fields' }, 400)
+    const key = `font-packages/${fileName}`
+    const upload = env.R2.resumeMultipartUpload(key, uploadId)
+    const part = await upload.uploadPart(partNumber, request.body)
+    return jsonResponse({ partNumber, etag: part.etag })
+  }
+
+  if (path === 'font-packages/multipart/complete' && request.method === 'POST') {
+    const body = await request.json() as { fileName: string; uploadId: string; parts: Array<{ partNumber: number; etag: string }> }
+    if (!body.fileName || !body.uploadId || !Array.isArray(body.parts)) return jsonResponse({ error: 'Missing multipart fields' }, 400)
+    const key = `font-packages/${body.fileName}`
+    const upload = env.R2.resumeMultipartUpload(key, body.uploadId)
+    await upload.complete(body.parts)
+    const domain = (await env.subKV.get('config:r2_domain')) || ''
+    const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/font-packages/${encodeURIComponent(body.fileName)}` : ''
+    return jsonResponse({ success: true, key, downloadUrl })
+  }
+
+  if (path === 'font-packages/multipart/abort' && request.method === 'POST') {
+    const body = await request.json() as { fileName: string; uploadId: string }
+    if (!body.fileName || !body.uploadId) return jsonResponse({ error: 'Missing multipart fields' }, 400)
+    const key = `font-packages/${body.fileName}`
+    const upload = env.R2.resumeMultipartUpload(key, body.uploadId)
+    await upload.abort()
+    return jsonResponse({ success: true })
   }
 
   if (path.startsWith('fonts/download/') && request.method === 'GET') {

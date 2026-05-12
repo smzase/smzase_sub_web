@@ -115,8 +115,9 @@
 
           <n-space align="center">
             <n-checkbox v-model:checked="fontPackageMode">作为字体压缩包上传</n-checkbox>
+            <n-checkbox v-model:checked="fontPackageMultipartMode">大文件分片上传</n-checkbox>
             <n-text depth="3" style="font-size: 12px;">
-              勾选后将上传 ZIP/7Z/RAR 到独立目录，并按中文名重命名为“[中文名] 字体整合包”
+              勾选分片上传可上传较大的 ZIP/7Z/RAR，适合 160MB 这类字体整合包
             </n-text>
           </n-space>
 
@@ -243,7 +244,7 @@ import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import { uploadFiles, getToken, getContents, readmeUrl, rawUrl, downloadUrl } from '../utils/github'
-import { uploadFontToR2, uploadFontPackageToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, listR2Fonts, getR2Domain } from '../utils/api'
+import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, listR2Fonts, getR2Domain } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -266,6 +267,7 @@ const uploading = ref(false)
 const isDragging = ref(false)
 const isFontDragging = ref(false)
 const fontPackageMode = ref(false)
+const fontPackageMultipartMode = ref(false)
 const subtitleFileInput = ref<HTMLInputElement | null>(null)
 const fontFileInput = ref<HTMLInputElement | null>(null)
 
@@ -1074,7 +1076,8 @@ async function commitFonts() {
         item.progress = 0
         try {
           const file = new File([item.content], item.newName)
-          const result = await uploadFontPackageToR2(file, { onProgress: (percent) => { item.progress = percent } })
+          const uploader = fontPackageMultipartMode.value ? uploadFontPackageMultipartToR2 : uploadFontPackageToR2
+          const result = await uploader(file, { onProgress: (percent) => { item.progress = percent } })
           uploadedPackages.push({
             name: item.newName,
             path: result.key,
