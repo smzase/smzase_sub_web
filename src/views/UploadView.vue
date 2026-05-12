@@ -83,7 +83,7 @@
             >
               提交上传 ({{ subtitleQueue.length }} 个文件)
             </n-button>
-            <n-button :disabled="uploading" @click="subtitleQueue = []">清空队列</n-button>
+            <n-button :disabled="uploading" @click="clearSubtitleQueue">清空队列</n-button>
           </n-space>
         </n-space>
       </template>
@@ -132,7 +132,7 @@
               ref="fontFileInput"
               type="file"
               multiple
-              :accept="fontPackageMode ? '.zip,.7z,.rar' : '.ttf,.otf,.ttc,.woff,.woff2'"
+              :accept="fontPackageMode ? '.zip,.7z,.rar' : '.ttf,.otf,.ttc,.woff,.woff2,.zip,.7z,.rar'"
               style="display: none;"
               @change="onFontFileInputChange"
             />
@@ -141,7 +141,7 @@
                 {{ fontPackageMode ? '点击、拖拽或粘贴字体压缩包到此处上传' : '点击、拖拽或粘贴字体文件到此处上传' }}
               </n-text>
               <n-text depth="3">
-                {{ fontPackageMode ? '支持 ZIP/7Z/RAR 格式，上传到 R2 的 font-packages 独立目录' : '支持 TTF/OTF/TTC/WOFF/WOFF2 格式，字体将上传至 R2 对象存储，可选择关联到指定动画' }}
+                {{ fontPackageMode ? '支持 ZIP/7Z/RAR 格式，上传到 R2 的 font-packages 独立目录' : '支持 TTF/OTF/TTC/WOFF/WOFF2，若选择 ZIP/7Z/RAR 会自动作为字体压缩包处理且必须关联动画' }}
               </n-text>
             </div>
           </div>
@@ -157,7 +157,7 @@
             <n-button type="primary" :loading="uploading" :disabled="uploading" @click="commitFonts">
               提交上传 ({{ fontQueue.length }} 个{{ fontPackageMode ? '压缩包' : '字体' }})
             </n-button>
-            <n-button :disabled="uploading" @click="fontQueue = []">清空队列</n-button>
+            <n-button :disabled="uploading" @click="clearFontQueue">清空队列</n-button>
           </n-space>
         </n-space>
       </template>
@@ -224,7 +224,7 @@
               <template #suffix>
                 <n-space size="small">
                   <n-button size="tiny" type="primary" @click="loadTemplate(t)">加载</n-button>
-                  <n-button size="tiny" type="error" @click="deleteTemplate(idx)">删除</n-button>
+                  <n-button size="tiny" type="error" :loading="deletingTemplateIndex === idx" :disabled="deletingTemplateIndex !== null" @click="deleteTemplate(idx)">删除</n-button>
                 </n-space>
               </template>
             </n-list-item>
@@ -238,7 +238,7 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
-import { NTag, NButton, NSpace, useMessage } from 'naive-ui'
+import { NTag, NButton, NSpace, NProgress, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
@@ -254,6 +254,7 @@ interface QueueItem {
   size: number
   content: ArrayBuffer
   status: 'pending' | 'uploading' | 'done' | 'error'
+  progress: number
   error?: string
 }
 
@@ -279,6 +280,7 @@ const fontLinkYear = ref<string | null>(null)
 const fontLinkAnime = ref<string | null>(null)
 const fontLinkAnimeOptions = ref<SelectOption[]>([])
 const fontLinkAnimeLoading = ref(false)
+const deletingTemplateIndex = ref<number | null>(null)
 
 const savedTemplates = ref<UploadTemplate[]>([])
 
@@ -317,13 +319,16 @@ const subtitleColumns: DataTableColumns<QueueItem> = [
   { title: '重命名后', key: 'newName', ellipsis: { tooltip: true } },
   { title: '大小', key: 'size', width: 100, render: (row) => formatFileSize(row.size) },
   {
-    title: '状态', key: 'status', width: 100,
+    title: '状态', key: 'status', width: 150,
     render: (row) => {
       const typeMap: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
         pending: 'default', uploading: 'info', done: 'success', error: 'error',
       }
       const labelMap: Record<string, string> = {
         pending: '等待', uploading: '上传中', done: '完成', error: '失败',
+      }
+      if (row.status === 'uploading') {
+        return h(NProgress, { type: 'line', percentage: row.progress, height: 12, indicatorPlacement: 'inside', processing: true })
       }
       return h(NTag, { type: typeMap[row.status], size: 'small' }, { default: () => labelMap[row.status] })
     },
@@ -332,7 +337,7 @@ const subtitleColumns: DataTableColumns<QueueItem> = [
     title: '操作', key: 'actions', width: 60,
     render: (_row, index) => h(NButton, {
       size: 'tiny', type: 'error', text: true,
-      onClick: () => { subtitleQueue.value.splice(index, 1) },
+      onClick: () => removeSubtitleQueueItem(index),
     }, { default: () => '移除' }),
   },
 ]
@@ -342,13 +347,16 @@ const fontColumns: DataTableColumns<QueueItem> = [
   { title: '上传名', key: 'newName', ellipsis: { tooltip: true } },
   { title: '大小', key: 'size', width: 120, render: (row) => formatFileSize(row.size) },
   {
-    title: '状态', key: 'status', width: 100,
+    title: '状态', key: 'status', width: 150,
     render: (row) => {
       const typeMap: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
         pending: 'default', uploading: 'info', done: 'success', error: 'error',
       }
       const labelMap: Record<string, string> = {
         pending: '等待', uploading: '上传中', done: '完成', error: '失败',
+      }
+      if (row.status === 'uploading') {
+        return h(NProgress, { type: 'line', percentage: row.progress, height: 12, indicatorPlacement: 'inside', processing: true })
       }
       return h(NTag, { type: typeMap[row.status], size: 'small' }, { default: () => labelMap[row.status] })
     },
@@ -357,10 +365,36 @@ const fontColumns: DataTableColumns<QueueItem> = [
     title: '操作', key: 'actions', width: 60,
     render: (_row, index) => h(NButton, {
       size: 'tiny', type: 'error', text: true,
-      onClick: () => { fontQueue.value.splice(index, 1) },
+      onClick: () => removeFontQueueItem(index),
     }, { default: () => '移除' }),
   },
 ]
+
+function removeSubtitleQueueItem(index: number) {
+  const [removed] = subtitleQueue.value.splice(index, 1)
+  if (removed) {
+    detectLanguagesFromQueue()
+    message.info(`已从队列移除 ${removed.originalName}`)
+  }
+}
+
+function removeFontQueueItem(index: number) {
+  const [removed] = fontQueue.value.splice(index, 1)
+  if (removed) message.info(`已从队列移除 ${removed.originalName}`)
+}
+
+function clearSubtitleQueue() {
+  const count = subtitleQueue.value.length
+  subtitleQueue.value = []
+  detectedLanguages.value = []
+  message.info(`已清空字幕队列：${count} 个文件`)
+}
+
+function clearFontQueue() {
+  const count = fontQueue.value.length
+  fontQueue.value = []
+  message.info(`已清空字体队列：${count} 个文件`)
+}
 
 function detectLanguagesFromQueue() {
   const langs = new Set<string>()
@@ -457,10 +491,22 @@ function findSavedTemplateForAnime(animeName: string, year: string | null): Uplo
 }
 
 async function deleteTemplate(idx: number) {
-  const name = savedTemplates.value[idx]?.name || savedTemplates.value[idx]?.titleEn
+  const removed = savedTemplates.value[idx]
+  if (!removed) return
+  const name = removed.name || removed.titleEn
+  deletingTemplateIndex.value = idx
+  const deleteMessage = message.loading(`正在删除模板 "${name}"...`, { duration: 0 })
   savedTemplates.value.splice(idx, 1)
-  await persistTemplates()
-  message.success(`模板 "${name}" 已删除`)
+  try {
+    await persistTemplates()
+    message.success(`模板 "${name}" 已删除`)
+  } catch (err: any) {
+    savedTemplates.value.splice(idx, 0, removed)
+    message.error(`模板删除失败: ${err.message}`)
+  } finally {
+    deleteMessage.destroy()
+    deletingTemplateIndex.value = null
+  }
 }
 
 async function loadYears() {
@@ -657,22 +703,44 @@ function processSubtitleFiles(files: File[]) {
         size: file.size,
         content,
         status: 'pending',
+        progress: 0,
       })
       detectLanguagesFromQueue()
     })
   }
 }
 
+function isArchiveFileName(name: string): boolean {
+  return /\.(zip|7z|rar)$/i.test(name)
+}
+
+function isFontFileName(name: string): boolean {
+  return /\.(ttf|otf|ttc|woff|woff2)$/i.test(name)
+}
+
+function hasLinkedAnimeForFontPackage(): boolean {
+  return !!fontLinkYear.value && !!fontLinkAnime.value
+}
+
 function processFontFiles(files: File[]) {
-  const validExts = fontPackageMode.value ? ['.zip', '.7z', '.rar'] : ['.ttf', '.otf', '.ttc', '.woff', '.woff2']
   for (const file of files) {
-    const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-    if (!validExts.includes(ext)) {
-      message.error(`不支持的${fontPackageMode.value ? '压缩包' : '字体'}格式: ${file.name}`)
+    const archive = isArchiveFileName(file.name)
+    const font = isFontFileName(file.name)
+    const shouldUploadAsPackage = fontPackageMode.value || archive
+    if (shouldUploadAsPackage && !archive) {
+      message.error(`不支持的压缩包格式: ${file.name}`)
       continue
     }
-    const newName = fontPackageMode.value ? buildFontPackageName(file.name) : file.name
-    const path = fontPackageMode.value ? `font-packages/${newName}` : buildFontPath(file.name)
+    if (!shouldUploadAsPackage && !font) {
+      message.error(`不支持的字体格式: ${file.name}`)
+      continue
+    }
+    if (shouldUploadAsPackage && !hasLinkedAnimeForFontPackage()) {
+      message.warning(`字体压缩包 ${file.name} 需要先选择关联年份和动画`)
+      continue
+    }
+    const newName = shouldUploadAsPackage ? buildFontPackageName(file.name) : file.name
+    const path = shouldUploadAsPackage ? `font-packages/${newName}` : buildFontPath(file.name)
     file.arrayBuffer().then((content) => {
       fontQueue.value.push({
         id: `${Date.now()}-${Math.random()}`,
@@ -682,6 +750,7 @@ function processFontFiles(files: File[]) {
         size: file.size,
         content,
         status: 'pending',
+        progress: 0,
       })
     })
   }
@@ -874,6 +943,11 @@ async function linkFontPackagesToAnime(packages: FontPackageRef[], year: string,
   return { added, skipped }
 }
 
+function updateQueueProgress(queue: QueueItem[], path: string, percent: number) {
+  const item = queue.find(i => i.path === path)
+  if (item) item.progress = percent
+}
+
 async function commitSubtitles() {
   if (!getToken()) {
     message.error('请先设置 GitHub Token')
@@ -885,6 +959,7 @@ async function commitSubtitles() {
 
     for (const item of subtitleQueue.value) {
       item.status = 'uploading'
+      item.progress = 0
       const base64 = arrayBufferToBase64(item.content)
       files.push({ path: item.path, content: base64, encoding: 'base64' })
     }
@@ -946,10 +1021,13 @@ async function commitSubtitles() {
     ).join(' ')
     const epStr = epList.map(e => `EP${String(e).padStart(2, '0')}`).join(', ')
     const commitTitleCn = titleCn || template.value.titleEn
-    await uploadFiles(files, `[${commitTitleCn}] ${epStr} ${langLabels}`)
+    await uploadFiles(files, `[${commitTitleCn}] ${epStr} ${langLabels}`, 'main', ({ path, percent }) => {
+      updateQueueProgress(subtitleQueue.value, path, percent)
+    })
 
     for (const item of subtitleQueue.value) {
       item.status = 'done'
+      item.progress = 100
     }
     message.success('字幕上传成功')
     subtitleQueue.value = []
@@ -958,6 +1036,7 @@ async function commitSubtitles() {
     for (const item of subtitleQueue.value) {
       if (item.status === 'uploading') {
         item.status = 'error'
+        item.progress = 0
         item.error = err.message
       }
     }
@@ -974,21 +1053,32 @@ async function commitFonts() {
   }
   uploading.value = true
   try {
-    if (fontPackageMode.value) {
+    const packageItems = fontQueue.value.filter(item => item.path.startsWith('font-packages/'))
+    const fontItems = fontQueue.value.filter(item => !item.path.startsWith('font-packages/'))
+    if (packageItems.length > 0 && !hasLinkedAnimeForFontPackage()) {
+      message.warning('上传字体压缩包前需要先选择关联年份和动画')
+      return
+    }
+
+    let packageMsg = ''
+    if (packageItems.length > 0) {
       const uploadedPackages: FontPackageRef[] = []
-      for (const item of fontQueue.value) {
+      for (const item of packageItems) {
         item.status = 'uploading'
+        item.progress = 0
         try {
           const file = new File([item.content], item.newName)
-          const result = await uploadFontPackageToR2(file)
+          const result = await uploadFontPackageToR2(file, { onProgress: (percent) => { item.progress = percent } })
           uploadedPackages.push({
             name: item.newName,
             path: result.key,
             downloadUrl: result.downloadUrl,
           })
           item.status = 'done'
+          item.progress = 100
         } catch (err: any) {
           item.status = 'error'
+          item.progress = 0
           item.error = err.message
         }
       }
@@ -1011,66 +1101,73 @@ async function commitFonts() {
         if (result.skipped > 0) linkedMsg += `，跳过 ${result.skipped} 个已关联`
       }
 
-      const successCount = fontQueue.value.filter(item => item.status === 'done').length
-      message.success(`字体压缩包处理完成：${successCount} 个成功${linkedMsg}`)
-      fontQueue.value = []
-      return
+      const successCount = packageItems.filter(item => item.status === 'done').length
+      packageMsg = `字体压缩包 ${successCount} 个成功${linkedMsg}`
     }
 
-    const existingFonts = await listR2Fonts().then(res => res.files || []).catch(() => [])
-    const existingMap = new Map(existingFonts.map(f => [f.name, f]))
-    const uploadedRefs: FontRef[] = []
-    let skippedUpload = 0
+    let fontMsg = ''
+    if (fontItems.length > 0) {
+      const existingFonts = await listR2Fonts().then(res => res.files || []).catch(() => [])
+      const existingMap = new Map(existingFonts.map(f => [f.name, f]))
+      const uploadedRefs: FontRef[] = []
+      let skippedUpload = 0
 
-    for (const item of fontQueue.value) {
-      item.status = 'uploading'
-      try {
-        const existing = existingMap.get(item.originalName)
-        if (existing) {
-          skippedUpload++
-          uploadedRefs.push({
-            name: existing.name,
-            path: existing.key,
-            downloadUrl: existing.downloadUrl,
-            displayName: existing.fontName || existing.name.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
-          })
-        } else {
-          const file = new File([item.content], item.originalName)
-          const result = await uploadFontToR2(file)
-          uploadedRefs.push({
-            name: item.originalName,
-            path: result.key,
-            downloadUrl: result.downloadUrl,
-            displayName: result.fontName || item.originalName.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
-          })
+      for (const item of fontItems) {
+        item.status = 'uploading'
+        item.progress = 0
+        try {
+          const existing = existingMap.get(item.originalName)
+          if (existing) {
+            skippedUpload++
+            item.progress = 100
+            uploadedRefs.push({
+              name: existing.name,
+              path: existing.key,
+              downloadUrl: existing.downloadUrl,
+              displayName: existing.fontName || existing.name.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
+            })
+          } else {
+            const file = new File([item.content], item.originalName)
+            const result = await uploadFontToR2(file, { onProgress: (percent) => { item.progress = percent } })
+            uploadedRefs.push({
+              name: item.originalName,
+              path: result.key,
+              downloadUrl: result.downloadUrl,
+              displayName: result.fontName || item.originalName.replace(/\.(ttf|otf|ttc|woff2?)$/i, ''),
+            })
+          }
+          item.status = 'done'
+          item.progress = 100
+        } catch (err: any) {
+          item.status = 'error'
+          item.progress = 0
+          item.error = err.message
         }
-        item.status = 'done'
-      } catch (err: any) {
-        item.status = 'error'
-        item.error = err.message
       }
+
+      let linkedMsg = ''
+      if (fontLinkYear.value && fontLinkAnime.value && uploadedRefs.length > 0) {
+        let r2Domain = ''
+        try {
+          const { domain } = await getR2Domain()
+          if (domain) r2Domain = domain.replace(/\/$/, '')
+        } catch {
+          // noop
+        }
+        const refs = uploadedRefs.map(font => ({
+          ...font,
+          downloadUrl: font.downloadUrl || (r2Domain ? `${r2Domain}/fonts/${encodeURIComponent(font.name)}` : ''),
+        })).filter(font => font.downloadUrl || !font.path.startsWith('fonts/'))
+        const result = await linkFontsToAnime(refs, fontLinkYear.value, fontLinkAnime.value)
+        linkedMsg = `，关联 ${result.added} 个字体`
+        if (result.skipped > 0) linkedMsg += `，跳过 ${result.skipped} 个已关联`
+      }
+
+      const successCount = fontItems.filter(item => item.status === 'done').length
+      fontMsg = `字体 ${successCount} 个成功${skippedUpload > 0 ? `，跳过上传 ${skippedUpload} 个已存在` : ''}${linkedMsg}`
     }
 
-    let linkedMsg = ''
-    if (fontLinkYear.value && fontLinkAnime.value && uploadedRefs.length > 0) {
-      let r2Domain = ''
-      try {
-        const { domain } = await getR2Domain()
-        if (domain) r2Domain = domain.replace(/\/$/, '')
-      } catch {
-        // noop
-      }
-      const refs = uploadedRefs.map(font => ({
-        ...font,
-        downloadUrl: font.downloadUrl || (r2Domain ? `${r2Domain}/fonts/${encodeURIComponent(font.name)}` : ''),
-      })).filter(font => font.downloadUrl || !font.path.startsWith('fonts/'))
-      const result = await linkFontsToAnime(refs, fontLinkYear.value, fontLinkAnime.value)
-      linkedMsg = `，关联 ${result.added} 个字体`
-      if (result.skipped > 0) linkedMsg += `，跳过 ${result.skipped} 个已关联`
-    }
-
-    const successCount = fontQueue.value.filter(item => item.status === 'done').length
-    message.success(`字体处理完成：${successCount} 个成功${skippedUpload > 0 ? `，跳过上传 ${skippedUpload} 个已存在` : ''}${linkedMsg}`)
+    message.success(`处理完成：${[packageMsg, fontMsg].filter(Boolean).join('；')}`)
     fontQueue.value = []
   } finally {
     uploading.value = false

@@ -66,8 +66,8 @@
                       </n-space>
                       <n-space v-if="confirmBatchDelete" justify="center" style="margin-bottom: 12px;">
                         <n-text type="error" style="font-size: 12px;">确认删除 {{ checkedSubtitles.length }} 个字幕?</n-text>
-                        <n-button size="tiny" type="error" @click="doBatchDelete">确认</n-button>
-                        <n-button size="tiny" @click="confirmBatchDelete = false">取消</n-button>
+                        <n-button size="tiny" type="error" :loading="batchDeleting" :disabled="batchDeleting" @click="doBatchDelete">确认</n-button>
+                        <n-button size="tiny" :disabled="batchDeleting" @click="confirmBatchDelete = false">取消</n-button>
                       </n-space>
 
                       <n-collapse v-if="animeDetail.fontPackages?.length || animeDetail.fonts.length > 0" :default-expanded-names="[]">
@@ -97,8 +97,8 @@
                           </n-space>
                           <n-space v-if="confirmFontBatchRemove" justify="center" style="margin-top: 4px;">
                             <n-text type="error" style="font-size: 12px;">确认移除 {{ checkedFonts.length }} 个字体?</n-text>
-                            <n-button size="tiny" type="error" @click="doFontBatchRemove">确认</n-button>
-                            <n-button size="tiny" @click="confirmFontBatchRemove = false">取消</n-button>
+                            <n-button size="tiny" type="error" :loading="fontBatchRemoving" :disabled="fontBatchRemoving" @click="doFontBatchRemove">确认</n-button>
+                            <n-button size="tiny" :disabled="fontBatchRemoving" @click="confirmFontBatchRemove = false">取消</n-button>
                           </n-space>
                         </n-collapse-item>
                       </n-collapse>
@@ -187,10 +187,14 @@ const expandedAnime = ref('')
 const animeDetail = ref<AnimeInfo | null>(null)
 const checkedSubtitles = ref<string[]>([])
 const confirmBatchDelete = ref(false)
+const deletingSubtitlePath = ref('')
+const batchDeleting = ref(false)
 const showEditModal = ref(false)
 const editingSubtitle = ref<SubtitleFile | null>(null)
 const checkedFonts = ref<string[]>([])
 const confirmFontBatchRemove = ref(false)
+const removingFontName = ref('')
+const fontBatchRemoving = ref(false)
 const yearReadmeLoading = ref('')
 const rootReadmeLoading = ref(false)
 const animeReadmeLoading = ref('')
@@ -219,6 +223,8 @@ const subtitleColumns: DataTableColumns<SubtitleFile> = [
         }, {
           trigger: () => h(NButton, {
             size: 'tiny', type: 'error', text: true,
+            loading: deletingSubtitlePath.value === row.path,
+            disabled: !!deletingSubtitlePath.value || batchDeleting.value,
           }, { default: () => '删除' }),
           default: () => `确认删除 ${row.name}?`,
         }),
@@ -246,6 +252,8 @@ const fontRefColumns: DataTableColumns<FontRef> = [
     }, {
       trigger: () => h(NButton, {
         size: 'tiny', type: 'error', text: true,
+        loading: removingFontName.value === row.name,
+        disabled: !!removingFontName.value || fontBatchRemoving.value,
       }, { default: () => '移除' }),
       default: () => `确认移除 ${row.name}?`,
     }),
@@ -264,20 +272,42 @@ function onFontCheckChange(keys: string[]) {
 
 async function doRemoveFont(font: FontRef) {
   if (!animeDetail.value) return
-  animeDetail.value.fonts = animeDetail.value.fonts.filter(f => f.name !== font.name)
-  await updateReadme()
-  message.success(`已移除 ${font.name}`)
+  const oldFonts = [...animeDetail.value.fonts]
+  removingFontName.value = font.name
+  const removeMessage = message.loading(`正在移除 ${font.name}...`, { duration: 0 })
+  try {
+    animeDetail.value.fonts = animeDetail.value.fonts.filter(f => f.name !== font.name)
+    await updateReadme()
+    message.success(`已移除 ${font.name}`)
+  } catch (err: any) {
+    animeDetail.value.fonts = oldFonts
+    message.error(`移除失败: ${err.message}`)
+  } finally {
+    removeMessage.destroy()
+    removingFontName.value = ''
+  }
 }
 
 async function doFontBatchRemove() {
   if (!animeDetail.value) return
-  animeDetail.value.fonts = animeDetail.value.fonts.filter(
-    f => !checkedFonts.value.includes(f.name)
-  )
-  checkedFonts.value = []
-  confirmFontBatchRemove.value = false
-  await updateReadme()
-  message.success('批量移除完成')
+  const oldFonts = [...animeDetail.value.fonts]
+  fontBatchRemoving.value = true
+  const removeMessage = message.loading(`正在移除 ${checkedFonts.value.length} 个字体...`, { duration: 0 })
+  try {
+    animeDetail.value.fonts = animeDetail.value.fonts.filter(
+      f => !checkedFonts.value.includes(f.name)
+    )
+    checkedFonts.value = []
+    confirmFontBatchRemove.value = false
+    await updateReadme()
+    message.success('批量移除完成')
+  } catch (err: any) {
+    animeDetail.value.fonts = oldFonts
+    message.error(`批量移除失败: ${err.message}`)
+  } finally {
+    removeMessage.destroy()
+    fontBatchRemoving.value = false
+  }
 }
 
 function openEditModal(sub: SubtitleFile) {
@@ -308,15 +338,20 @@ async function handleEditUpload({ file }: UploadCustomRequestOptions) {
 }
 
 async function doDelete(sub: SubtitleFile) {
+  deletingSubtitlePath.value = sub.path
+  const deleteMessage = message.loading(`正在删除 ${sub.name}...`, { duration: 0 })
   try {
     await deleteFile(sub.path, `chore: 删除 ${sub.name}`)
-    message.success('已删除')
     if (animeDetail.value) {
       animeDetail.value.subtitles = animeDetail.value.subtitles.filter(s => s.path !== sub.path)
       await updateReadme()
     }
+    message.success(`已删除 ${sub.name}`)
   } catch (err: any) {
     message.error(`删除失败: ${err.message}`)
+  } finally {
+    deleteMessage.destroy()
+    deletingSubtitlePath.value = ''
   }
 }
 
@@ -331,6 +366,9 @@ async function batchEdit() {
 
 async function doBatchDelete() {
   if (!animeDetail.value) return
+  batchDeleting.value = true
+  const selectedCount = checkedSubtitles.value.length
+  const deleteMessage = message.loading(`正在删除 ${selectedCount} 个字幕...`, { duration: 0 })
   try {
     for (const path of checkedSubtitles.value) {
       const sub = animeDetail.value.subtitles.find(s => s.path === path)
@@ -344,9 +382,12 @@ async function doBatchDelete() {
     checkedSubtitles.value = []
     confirmBatchDelete.value = false
     await updateReadme()
-    message.success('批量删除完成')
+    message.success(`批量删除完成：${selectedCount} 个字幕`)
   } catch (err: any) {
     message.error(`批量删除失败: ${err.message}`)
+  } finally {
+    deleteMessage.destroy()
+    batchDeleting.value = false
   }
 }
 

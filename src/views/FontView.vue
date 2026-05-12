@@ -34,8 +34,8 @@
         </n-space>
         <n-space v-if="confirmBatchDelete" justify="center" style="margin-top: 8px;">
           <n-text type="error" style="font-size: 12px;">确认删除 {{ checkedFonts.length }} 个字体?</n-text>
-          <n-button size="tiny" type="error" @click="doBatchDelete">确认</n-button>
-          <n-button size="tiny" @click="confirmBatchDelete = false">取消</n-button>
+          <n-button size="tiny" type="error" :loading="batchDeleting" :disabled="batchDeleting" @click="doBatchDelete">确认</n-button>
+          <n-button size="tiny" :disabled="batchDeleting" @click="confirmBatchDelete = false">取消</n-button>
         </n-space>
       </n-spin>
     </n-card>
@@ -92,6 +92,8 @@ const showLinkModal = ref(false)
 const selectedFonts = ref<FontItem[]>([])
 const checkedFonts = ref<string[]>([])
 const confirmBatchDelete = ref(false)
+const deletingFontKey = ref('')
+const batchDeleting = ref(false)
 
 const linkForm = ref({
   year: null as string | null,
@@ -125,6 +127,8 @@ const columns: DataTableColumns<FontItem> = [
         }, {
           trigger: () => h(NButton, {
             size: 'tiny', type: 'error', text: true,
+            loading: deletingFontKey.value === row.key,
+            disabled: !!deletingFontKey.value || batchDeleting.value,
           }, { default: () => '删除' }),
           default: () => `确认删除 ${row.name}?`,
         }),
@@ -212,6 +216,8 @@ function batchLink() {
 }
 
 async function doDeleteFont(font: FontItem) {
+  deletingFontKey.value = font.key
+  const deleteMessage = message.loading(`正在删除 ${font.name}...`, { duration: 0 })
   try {
     if (font.key.startsWith('fonts/')) {
       await deleteFontFromR2(font.key)
@@ -222,10 +228,16 @@ async function doDeleteFont(font: FontItem) {
     message.success(`已删除 ${font.name}`)
   } catch (err: any) {
     message.error(`删除失败: ${err.message}`)
+  } finally {
+    deleteMessage.destroy()
+    deletingFontKey.value = ''
   }
 }
 
 async function doBatchDelete() {
+  batchDeleting.value = true
+  const selectedCount = checkedFonts.value.length
+  const deleteMessage = message.loading(`正在删除 ${selectedCount} 个字体...`, { duration: 0 })
   try {
     for (const key of checkedFonts.value) {
       const font = fonts.value.find(f => f.key === key)
@@ -240,9 +252,12 @@ async function doBatchDelete() {
     fonts.value = fonts.value.filter(f => !checkedFonts.value.includes(f.key))
     checkedFonts.value = []
     confirmBatchDelete.value = false
-    message.success('批量删除完成')
+    message.success(`批量删除完成：${selectedCount} 个字体`)
   } catch (err: any) {
     message.error(`批量删除失败: ${err.message}`)
+  } finally {
+    deleteMessage.destroy()
+    batchDeleting.value = false
   }
 }
 

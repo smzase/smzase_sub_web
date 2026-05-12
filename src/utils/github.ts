@@ -123,10 +123,16 @@ export async function updateRef(sha: string, branch = 'main'): Promise<void> {
   })
 }
 
+export interface UploadProgressInfo {
+  path: string
+  percent: number
+}
+
 export async function uploadFiles(
   files: Array<{ path: string; content: string; encoding: 'utf-8' | 'base64' }>,
   message: string,
-  branch = 'main'
+  branch = 'main',
+  onProgress?: (info: UploadProgressInfo) => void
 ): Promise<void> {
   const refSha = await getRef(branch)
   const commit = await getCommit(refSha)
@@ -134,7 +140,9 @@ export async function uploadFiles(
 
   const treeItems = []
   for (const file of files) {
+    onProgress?.({ path: file.path, percent: 10 })
     const blobSha = await createBlob(file.content, file.encoding)
+    onProgress?.({ path: file.path, percent: 80 })
     treeItems.push({
       path: file.path,
       mode: '100644',
@@ -146,6 +154,9 @@ export async function uploadFiles(
   const newTreeSha = await createTree(baseTreeSha, treeItems)
   const newCommitSha = await createCommit(message, newTreeSha, refSha)
   await updateRef(newCommitSha, branch)
+  for (const file of files) {
+    onProgress?.({ path: file.path, percent: 100 })
+  }
 }
 
 export async function deleteFile(path: string, message: string, branch = 'main'): Promise<void> {

@@ -104,34 +104,53 @@ export async function saveEpisodeTitles(episodeTitles: Record<string, Record<str
   })
 }
 
-export async function uploadFontToR2(file: File): Promise<{ success: boolean; key: string; downloadUrl: string; fontName: string }> {
-  const token = getSessionToken()
-  const res = await fetch(`${API_BASE}/fonts/upload`, {
-    method: 'POST',
-    headers: {
-      'X-File-Name': encodeURIComponent(file.name),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: file,
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'Upload failed')
-  return data
+interface UploadProgressOptions {
+  onProgress?: (percent: number) => void
 }
 
-export async function uploadFontPackageToR2(file: File): Promise<{ success: boolean; key: string; downloadUrl: string }> {
+function uploadFileWithProgress<T>(path: string, file: File, fallbackError: string, options?: UploadProgressOptions): Promise<T> {
   const token = getSessionToken()
-  const res = await fetch(`${API_BASE}/font-packages/upload`, {
-    method: 'POST',
-    headers: {
-      'X-File-Name': encodeURIComponent(file.name),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: file,
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}/${path}`)
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name))
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        options?.onProgress?.(Math.max(1, Math.min(99, Math.round((event.loaded / event.total) * 100))))
+      }
+    }
+    xhr.onload = () => {
+      let data: any = {}
+      try {
+        data = xhr.responseText ? JSON.parse(xhr.responseText) : {}
+      } catch {
+        reject(new Error(fallbackError))
+        return
+      }
+      if (xhr.status === 401) {
+        clearSession()
+        reject(new Error('Unauthorized'))
+        return
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(data.error || fallbackError))
+        return
+      }
+      options?.onProgress?.(100)
+      resolve(data)
+    }
+    xhr.onerror = () => reject(new Error(fallbackError))
+    xhr.send(file)
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'Upload failed')
-  return data
+}
+
+export async function uploadFontToR2(file: File, options?: UploadProgressOptions): Promise<{ success: boolean; key: string; downloadUrl: string; fontName: string }> {
+  return uploadFileWithProgress('fonts/upload', file, 'Upload failed', options)
+}
+
+export async function uploadFontPackageToR2(file: File, options?: UploadProgressOptions): Promise<{ success: boolean; key: string; downloadUrl: string }> {
+  return uploadFileWithProgress('font-packages/upload', file, 'Upload failed', options)
 }
 
 export async function deleteFontFromR2(key: string): Promise<any> {
