@@ -344,6 +344,17 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ success: true })
   }
 
+  if (path === 'episode-titles' && request.method === 'GET') {
+    const raw = await env.subKV.get('episodeTitles:list')
+    return jsonResponse({ episodeTitles: raw ? JSON.parse(raw) : {} })
+  }
+
+  if (path === 'episode-titles' && request.method === 'POST') {
+    const body = await request.json() as { episodeTitles: Record<string, Record<string, string>> }
+    await env.subKV.put('episodeTitles:list', JSON.stringify(body.episodeTitles))
+    return jsonResponse({ success: true })
+  }
+
   if (path === 'fonts/upload' && request.method === 'POST') {
     const contentType = request.headers.get('Content-Type') || ''
     const fileName = decodeURIComponent(request.headers.get('X-File-Name') || 'unknown')

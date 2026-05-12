@@ -93,6 +93,17 @@ export async function saveTemplates(templates: any[]): Promise<any> {
   })
 }
 
+export async function getEpisodeTitles(): Promise<{ episodeTitles: Record<string, Record<string, string>> }> {
+  return apiFetch('episode-titles')
+}
+
+export async function saveEpisodeTitles(episodeTitles: Record<string, Record<string, string>>): Promise<any> {
+  return apiFetch('episode-titles', {
+    method: 'POST',
+    body: JSON.stringify({ episodeTitles }),
+  })
+}
+
 export async function uploadFontToR2(file: File): Promise<{ success: boolean; key: string; downloadUrl: string; fontName: string }> {
   const token = getSessionToken()
   const res = await fetch(`${API_BASE}/fonts/upload`, {

@@ -144,7 +144,7 @@ import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
 import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
-import { getTemplates as apiGetTemplates } from '../utils/api'
+import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles } from '../utils/api'
 
 interface AnimeListItem {
   folder: string
@@ -516,10 +516,26 @@ async function openEpisodeTitleModal(year: string, folder: string) {
     }
     if (!animeDetail.value) return
     const episodes = new Set(animeDetail.value.subtitles.map(s => s.episode))
-    const titles = animeDetail.value.episodeTitles || {}
+    const readmeTitles = animeDetail.value.episodeTitles || {}
+    let kvTitles: Record<string, string> = {}
+    try {
+      const result = await apiGetEpisodeTitles()
+      kvTitles = result.episodeTitles[key] || {}
+    } catch {
+      // noop
+    }
+    const mergedTitles: Record<number, string> = {}
+    for (const [epStr, title] of Object.entries(kvTitles)) {
+      const epNum = parseInt(epStr, 10)
+      if (!isNaN(epNum)) mergedTitles[epNum] = title
+    }
+    for (const [epStr, title] of Object.entries(readmeTitles)) {
+      const epNum = parseInt(epStr, 10)
+      if (!isNaN(epNum) && !mergedTitles[epNum]) mergedTitles[epNum] = title
+    }
     episodeTitleList.value = Array.from(episodes).sort((a, b) => a - b).map(ep => ({
       episode: ep,
-      title: titles[ep] || '',
+      title: mergedTitles[ep] || '',
     }))
     showEpisodeTitleModal.value = true
   } finally {
@@ -537,6 +553,20 @@ async function saveEpisodeTitles() {
     }
     animeDetail.value.episodeTitles = titles
     await updateReadme()
+    const key = `${animeDetail.value.year}/${animeDetail.value.folder}`
+    let allTitles: Record<string, Record<string, string>> = {}
+    try {
+      const result = await apiGetEpisodeTitles()
+      allTitles = result.episodeTitles
+    } catch {
+      // noop
+    }
+    const kvItem: Record<string, string> = {}
+    for (const [epStr, title] of Object.entries(titles)) {
+      kvItem[epStr] = title
+    }
+    allTitles[key] = kvItem
+    await apiSaveEpisodeTitles(allTitles)
     showEpisodeTitleModal.value = false
     message.success('集数标题已保存')
   } catch (err: any) {
