@@ -34,6 +34,7 @@
                       </n-tag>
                       <n-tag size="small" type="info">{{ anime.subtitleCount }} 个字幕</n-tag>
                       <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
+                      <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑集数标题</n-button>
                     </n-space>
                   </template>
                 </n-thing>
@@ -57,10 +58,6 @@
                         size="small"
                         style="margin-bottom: 12px;"
                       />
-
-                      <n-space v-if="animeDetail.subtitles.length > 0" justify="center" style="margin-bottom: 12px;">
-                        <n-button size="tiny" @click="openEpisodeTitleModal">编辑集数标题</n-button>
-                      </n-space>
 
                       <n-space v-if="checkedSubtitles.length > 0" justify="center" style="margin-bottom: 12px;">
                         <n-text depth="3">已选 {{ checkedSubtitles.length }} 项</n-text>
@@ -189,6 +186,7 @@ const rootReadmeLoading = ref(false)
 const animeReadmeLoading = ref('')
 const showEpisodeTitleModal = ref(false)
 const savingEpisodeTitles = ref(false)
+const episodeTitleLoading = ref('')
 const episodeTitleList = ref<Array<{ episode: number; title: string }>>([])
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
@@ -509,15 +507,24 @@ async function refreshAnimeReadme(year: string, folder: string) {
   }
 }
 
-function openEpisodeTitleModal() {
-  if (!animeDetail.value) return
-  const episodes = new Set(animeDetail.value.subtitles.map(s => s.episode))
-  const titles = animeDetail.value.episodeTitles || {}
-  episodeTitleList.value = Array.from(episodes).sort((a, b) => a - b).map(ep => ({
-    episode: ep,
-    title: titles[ep] || '',
-  }))
-  showEpisodeTitleModal.value = true
+async function openEpisodeTitleModal(year: string, folder: string) {
+  const key = `${year}/${folder}`
+  episodeTitleLoading.value = key
+  try {
+    if (!animeDetail.value || expandedAnime.value !== key) {
+      await toggleAnimeDetail(year, folder)
+    }
+    if (!animeDetail.value) return
+    const episodes = new Set(animeDetail.value.subtitles.map(s => s.episode))
+    const titles = animeDetail.value.episodeTitles || {}
+    episodeTitleList.value = Array.from(episodes).sort((a, b) => a - b).map(ep => ({
+      episode: ep,
+      title: titles[ep] || '',
+    }))
+    showEpisodeTitleModal.value = true
+  } finally {
+    episodeTitleLoading.value = ''
+  }
 }
 
 async function saveEpisodeTitles() {
