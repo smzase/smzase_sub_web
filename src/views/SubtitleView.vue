@@ -44,18 +44,6 @@
                 </n-thing>
 
                 <template v-if="expandedAnime === `${year}/${anime.folder}`">
-                  <div class="anime-sticky-toolbar">
-                    <n-space align="center">
-                      <span class="anime-sticky-title" @click="toggleAnimeDetail(year, anime.folder)">{{ anime.folder }}</span>
-                      <n-tag size="small" v-for="lang in anime.languages" :key="lang">
-                        {{ lang === 'zh-hans' ? '简中' : lang === 'zh-hant' ? '繁中' : lang }}
-                      </n-tag>
-                      <n-tag size="small" type="info">{{ anime.subtitleCount }} 个字幕</n-tag>
-                      <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
-                      <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑集数标题</n-button>
-                      <n-button size="tiny" type="error" secondary @click="toggleAnimeDetail(year, anime.folder)">收起</n-button>
-                    </n-space>
-                  </div>
                   <n-divider style="margin: 8px 0;" />
                   <n-spin :show="detailLoading">
                     <div v-if="animeDetail">
@@ -850,20 +838,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.anime-sticky-toolbar {
+:deep(.anime-list-item--expanded > .n-list-item__main > .n-thing > .n-thing-main > .n-thing-avatar-header-wrapper) {
   position: sticky;
   top: 0;
-  z-index: 20;
-  margin: 8px 0;
-  padding: 8px 12px;
+  z-index: 10;
+  padding: 8px 0;
   background: #fff;
-  border: 1px solid rgb(224, 224, 230);
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.anime-sticky-title {
-  cursor: pointer;
-  font-weight: 600;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
 </style>
