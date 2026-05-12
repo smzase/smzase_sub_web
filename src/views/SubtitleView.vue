@@ -23,7 +23,6 @@
               <n-list-item
                 v-for="anime in animeByYear[year]"
                 :key="anime.folder"
-                :class="{ 'anime-list-item--expanded': expandedAnime === `${year}/${anime.folder}` }"
               >
                 <n-thing>
                   <template #header>
@@ -44,6 +43,22 @@
                 </n-thing>
 
                 <template v-if="expandedAnime === `${year}/${anime.folder}`">
+                  <div class="anime-detail-sticky-header">
+                    <n-space align="center" justify="space-between" :wrap="false">
+                      <n-space align="center" :wrap="false" :size="8">
+                        <span style="font-weight: 500; cursor: pointer;" @click="toggleAnimeDetail(year, anime.folder)">{{ anime.folder }}</span>
+                        <n-tag size="small" v-for="lang in anime.languages" :key="lang">
+                          {{ lang === 'zh-hans' ? '简中' : lang === 'zh-hant' ? '繁中' : lang }}
+                        </n-tag>
+                        <n-tag size="small" type="info">{{ anime.subtitleCount }} 个字幕</n-tag>
+                      </n-space>
+                      <n-space align="center" :size="4">
+                        <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
+                        <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑集数标题</n-button>
+                        <n-button size="tiny" type="warning" @click="toggleAnimeDetail(year, anime.folder)">收起</n-button>
+                      </n-space>
+                    </n-space>
+                  </div>
                   <n-divider style="margin: 8px 0;" />
                   <n-spin :show="detailLoading">
                     <div v-if="animeDetail">
@@ -838,12 +853,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
-:deep(.anime-list-item--expanded > .n-list-item__main > .n-thing > .n-thing-main > .n-thing-avatar-header-wrapper) {
+.anime-detail-sticky-header {
   position: sticky;
   top: 0;
-  z-index: 10;
-  padding: 8px 0;
+  z-index: 100;
+  padding: 8px 12px;
   background: #fff;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  margin: -4px -12px 0;
 }
 </style>
