@@ -140,7 +140,8 @@ function uploadFileWithProgress<T>(path: string, file: File, fallbackError: stri
       options?.onProgress?.(100)
       resolve(data)
     }
-    xhr.onerror = () => reject(new Error(fallbackError))
+    xhr.onerror = () => reject(new Error('网络请求失败，请检查 Worker 部署、CORS 或网络连接'))
+    xhr.ontimeout = () => reject(new Error('上传超时，请稍后重试'))
     xhr.send(file)
   })
 }

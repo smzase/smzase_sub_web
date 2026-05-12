@@ -1046,6 +1046,12 @@ async function commitSubtitles() {
   }
 }
 
+function getQueueFailureMessage(items: QueueItem[]): string {
+  const failed = items.filter(item => item.status === 'error')
+  if (failed.length === 0) return ''
+  return failed.map(item => `${item.newName}: ${item.error || '未知错误'}`).join('；')
+}
+
 async function commitFonts() {
   if (!getToken()) {
     message.error('请先设置 GitHub Token')
@@ -1102,7 +1108,9 @@ async function commitFonts() {
       }
 
       const successCount = packageItems.filter(item => item.status === 'done').length
+      const failureMsg = getQueueFailureMessage(packageItems)
       packageMsg = `字体压缩包 ${successCount} 个成功${linkedMsg}`
+      if (failureMsg) packageMsg += `，${packageItems.length - successCount} 个失败：${failureMsg}`
     }
 
     let fontMsg = ''
@@ -1164,11 +1172,24 @@ async function commitFonts() {
       }
 
       const successCount = fontItems.filter(item => item.status === 'done').length
+      const failureMsg = getQueueFailureMessage(fontItems)
       fontMsg = `字体 ${successCount} 个成功${skippedUpload > 0 ? `，跳过上传 ${skippedUpload} 个已存在` : ''}${linkedMsg}`
+      if (failureMsg) fontMsg += `，${fontItems.length - successCount} 个失败：${failureMsg}`
     }
 
-    message.success(`处理完成：${[packageMsg, fontMsg].filter(Boolean).join('；')}`)
-    fontQueue.value = []
+    const failedItems = fontQueue.value.filter(item => item.status === 'error')
+    const doneItems = fontQueue.value.filter(item => item.status === 'done')
+    const resultMsg = `处理完成：${[packageMsg, fontMsg].filter(Boolean).join('；')}`
+    if (failedItems.length > 0) {
+      message.error(resultMsg)
+      fontQueue.value = failedItems
+    } else {
+      message.success(resultMsg)
+      fontQueue.value = []
+    }
+    if (doneItems.length > 0 && failedItems.length > 0) {
+      message.info(`已完成 ${doneItems.length} 个文件，失败项已保留在队列中`)
+    }
   } finally {
     uploading.value = false
   }
