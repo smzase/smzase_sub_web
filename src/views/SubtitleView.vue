@@ -194,6 +194,7 @@ const editingSubtitle = ref<SubtitleFile | null>(null)
 const checkedFonts = ref<string[]>([])
 const confirmFontBatchRemove = ref(false)
 const removingFontName = ref('')
+const removingFontPackageName = ref('')
 const fontBatchRemoving = ref(false)
 const yearReadmeLoading = ref('')
 const rootReadmeLoading = ref(false)
@@ -239,10 +240,17 @@ const fontPackageColumns: DataTableColumns<FontPackageRef> = [
     render: (row) => h(NTag, { type: 'success', bordered: false }, { default: () => row.name }),
   },
   {
-    title: '下载', key: 'downloadUrl', width: 80,
-    render: (row) => row.downloadUrl
-      ? h(NButton, { size: 'tiny', type: 'success', text: true, tag: 'a', href: row.downloadUrl, target: '_blank' }, { default: () => '下载' })
-      : '-',
+    title: '操作', key: 'actions', width: 80,
+    render: (row) => h(NPopconfirm, {
+      onPositiveClick: () => doRemoveFontPackage(row),
+    }, {
+      trigger: () => h(NButton, {
+        size: 'tiny', type: 'error', text: true,
+        loading: removingFontPackageName.value === row.name,
+        disabled: !!removingFontPackageName.value,
+      }, { default: () => '移除' }),
+      default: () => `确认移除 ${row.name}?`,
+    }),
   },
 ]
 
@@ -291,6 +299,24 @@ async function doRemoveFont(font: FontRef) {
   } finally {
     removeMessage.destroy()
     removingFontName.value = ''
+  }
+}
+
+async function doRemoveFontPackage(pkg: FontPackageRef) {
+  if (!animeDetail.value) return
+  const oldPackages = [...(animeDetail.value.fontPackages || [])]
+  removingFontPackageName.value = pkg.name
+  const removeMessage = message.loading(`正在移除 ${pkg.name}...`, { duration: 0 })
+  try {
+    animeDetail.value.fontPackages = (animeDetail.value.fontPackages || []).filter(f => f.name !== pkg.name)
+    await updateReadme()
+    message.success(`已移除 ${pkg.name}`)
+  } catch (err: any) {
+    animeDetail.value.fontPackages = oldPackages
+    message.error(`移除失败: ${err.message}`)
+  } finally {
+    removeMessage.destroy()
+    removingFontPackageName.value = ''
   }
 }
 
