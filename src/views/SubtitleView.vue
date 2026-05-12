@@ -20,10 +20,7 @@
               </n-space>
             </template>
             <n-list bordered>
-              <n-list-item
-                v-for="anime in animeByYear[year]"
-                :key="anime.folder"
-              >
+              <n-list-item v-for="anime in animeByYear[year]" :key="anime.folder">
                 <n-thing>
                   <template #header>
                     <span style="cursor: pointer;" @click="toggleAnimeDetail(year, anime.folder)">
@@ -43,22 +40,6 @@
                 </n-thing>
 
                 <template v-if="expandedAnime === `${year}/${anime.folder}`">
-                  <div class="anime-detail-sticky-header">
-                    <n-space align="center" justify="space-between" :wrap="false">
-                      <n-space align="center" :wrap="false" :size="8">
-                        <span style="font-weight: 500; cursor: pointer;" @click="toggleAnimeDetail(year, anime.folder)">{{ anime.folder }}</span>
-                        <n-tag size="small" v-for="lang in anime.languages" :key="lang">
-                          {{ lang === 'zh-hans' ? '简中' : lang === 'zh-hant' ? '繁中' : lang }}
-                        </n-tag>
-                        <n-tag size="small" type="info">{{ anime.subtitleCount }} 个字幕</n-tag>
-                      </n-space>
-                      <n-space align="center" :size="4">
-                        <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
-                        <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑集数标题</n-button>
-                        <n-button size="tiny" type="warning" @click="toggleAnimeDetail(year, anime.folder)">收起</n-button>
-                      </n-space>
-                    </n-space>
-                  </div>
                   <n-divider style="margin: 8px 0;" />
                   <n-spin :show="detailLoading">
                     <div v-if="animeDetail">
@@ -214,7 +195,6 @@ const checkedFonts = ref<string[]>([])
 const confirmFontBatchRemove = ref(false)
 const removingFontName = ref('')
 const fontBatchRemoving = ref(false)
-const removingFontPackageName = ref('')
 const yearReadmeLoading = ref('')
 const rootReadmeLoading = ref(false)
 const animeReadmeLoading = ref('')
@@ -259,17 +239,10 @@ const fontPackageColumns: DataTableColumns<FontPackageRef> = [
     render: (row) => h(NTag, { type: 'success', bordered: false }, { default: () => row.name }),
   },
   {
-    title: '操作', key: 'actions', width: 80,
-    render: (row) => h(NPopconfirm, {
-      onPositiveClick: () => doRemoveFontPackage(row),
-    }, {
-      trigger: () => h(NButton, {
-        size: 'tiny', type: 'error', text: true,
-        loading: removingFontPackageName.value === row.name,
-        disabled: !!removingFontPackageName.value,
-      }, { default: () => '移除' }),
-      default: () => `确认移除 ${row.name}?`,
-    }),
+    title: '下载', key: 'downloadUrl', width: 80,
+    render: (row) => row.downloadUrl
+      ? h(NButton, { size: 'tiny', type: 'success', text: true, tag: 'a', href: row.downloadUrl, target: '_blank' }, { default: () => '下载' })
+      : '-',
   },
 ]
 
@@ -301,24 +274,6 @@ function onCheckChange(keys: string[]) {
 function onFontCheckChange(keys: string[]) {
   checkedFonts.value = keys
   confirmFontBatchRemove.value = false
-}
-
-async function doRemoveFontPackage(pkg: FontPackageRef) {
-  if (!animeDetail.value) return
-  const oldPackages = [...(animeDetail.value.fontPackages || [])]
-  removingFontPackageName.value = pkg.name
-  const removeMessage = message.loading(`正在移除 ${pkg.name}...`, { duration: 0 })
-  try {
-    animeDetail.value.fontPackages = oldPackages.filter(f => f.name !== pkg.name)
-    await updateReadme()
-    message.success(`已移除 ${pkg.name}`)
-  } catch (err: any) {
-    animeDetail.value.fontPackages = oldPackages
-    message.error(`移除失败: ${err.message}`)
-  } finally {
-    removeMessage.destroy()
-    removingFontPackageName.value = ''
-  }
 }
 
 async function doRemoveFont(font: FontRef) {
@@ -851,15 +806,3 @@ onMounted(() => {
   if (getToken()) loadData()
 })
 </script>
-
-<style scoped>
-.anime-detail-sticky-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  padding: 8px 12px;
-  background: #fff;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  margin: -4px -12px 0;
-}
-</style>
