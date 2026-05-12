@@ -119,6 +119,21 @@ export async function uploadFontToR2(file: File): Promise<{ success: boolean; ke
   return data
 }
 
+export async function uploadFontPackageToR2(file: File): Promise<{ success: boolean; key: string; downloadUrl: string }> {
+  const token = getSessionToken()
+  const res = await fetch(`${API_BASE}/font-packages/upload`, {
+    method: 'POST',
+    headers: {
+      'X-File-Name': encodeURIComponent(file.name),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: file,
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Upload failed')
+  return data
+}
+
 export async function deleteFontFromR2(key: string): Promise<any> {
   return apiFetch('fonts/delete', {
     method: 'POST',

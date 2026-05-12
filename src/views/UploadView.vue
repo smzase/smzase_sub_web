@@ -113,6 +113,13 @@
             />
           </n-space>
 
+          <n-space align="center">
+            <n-checkbox v-model:checked="fontPackageMode">作为字体压缩包上传</n-checkbox>
+            <n-text depth="3" style="font-size: 12px;">
+              勾选后将上传 ZIP/7Z/RAR 到独立目录，并按中文名重命名为“[中文名] 字体整合包”
+            </n-text>
+          </n-space>
+
           <div
             class="drop-zone"
             :class="{ 'drop-zone--active': isFontDragging }"
@@ -125,16 +132,16 @@
               ref="fontFileInput"
               type="file"
               multiple
-              accept=".ttf,.otf,.ttc,.woff,.woff2"
+              :accept="fontPackageMode ? '.zip,.7z,.rar' : '.ttf,.otf,.ttc,.woff,.woff2'"
               style="display: none;"
               @change="onFontFileInputChange"
             />
             <div style="padding: 32px 0; text-align: center;">
               <n-text style="font-size: 16px; display: block; margin-bottom: 8px;">
-                点击、拖拽或粘贴字体文件到此处上传
+                {{ fontPackageMode ? '点击、拖拽或粘贴字体压缩包到此处上传' : '点击、拖拽或粘贴字体文件到此处上传' }}
               </n-text>
               <n-text depth="3">
-                支持 TTF/OTF/TTC/WOFF/WOFF2 格式，字体将上传至 R2 对象存储，可选择关联到指定动画
+                {{ fontPackageMode ? '支持 ZIP/7Z/RAR 格式，上传到 R2 的 font-packages 独立目录' : '支持 TTF/OTF/TTC/WOFF/WOFF2 格式，字体将上传至 R2 对象存储，可选择关联到指定动画' }}
               </n-text>
             </div>
           </div>
@@ -148,7 +155,7 @@
 
           <n-space v-if="fontQueue.length > 0">
             <n-button type="primary" :loading="uploading" :disabled="uploading" @click="commitFonts">
-              提交上传 ({{ fontQueue.length }} 个字体)
+              提交上传 ({{ fontQueue.length }} 个{{ fontPackageMode ? '压缩包' : '字体' }})
             </n-button>
             <n-button :disabled="uploading" @click="fontQueue = []">清空队列</n-button>
           </n-space>
@@ -233,10 +240,10 @@
 import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { NTag, NButton, NSpace, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import type { UploadTemplate, SubtitleFile, FontRef } from '../types'
+import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import { uploadFiles, getToken, getContents, readmeUrl, rawUrl, downloadUrl } from '../utils/github'
-import { uploadFontToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, listR2Fonts, getR2Domain } from '../utils/api'
+import { uploadFontToR2, uploadFontPackageToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, listR2Fonts, getR2Domain } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -257,6 +264,7 @@ const uploadTab = ref('subtitle')
 const uploading = ref(false)
 const isDragging = ref(false)
 const isFontDragging = ref(false)
+const fontPackageMode = ref(false)
 const subtitleFileInput = ref<HTMLInputElement | null>(null)
 const fontFileInput = ref<HTMLInputElement | null>(null)
 
@@ -331,6 +339,7 @@ const subtitleColumns: DataTableColumns<QueueItem> = [
 
 const fontColumns: DataTableColumns<QueueItem> = [
   { title: '文件名', key: 'originalName', ellipsis: { tooltip: true } },
+  { title: '上传名', key: 'newName', ellipsis: { tooltip: true } },
   { title: '大小', key: 'size', width: 120, render: (row) => formatFileSize(row.size) },
   {
     title: '状态', key: 'status', width: 100,
@@ -655,19 +664,20 @@ function processSubtitleFiles(files: File[]) {
 }
 
 function processFontFiles(files: File[]) {
-  const validExts = ['.ttf', '.otf', '.ttc', '.woff', '.woff2']
+  const validExts = fontPackageMode.value ? ['.zip', '.7z', '.rar'] : ['.ttf', '.otf', '.ttc', '.woff', '.woff2']
   for (const file of files) {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase()
     if (!validExts.includes(ext)) {
-      message.error(`不支持的字体格式: ${file.name}`)
+      message.error(`不支持的${fontPackageMode.value ? '压缩包' : '字体'}格式: ${file.name}`)
       continue
     }
-    const path = buildFontPath(file.name)
+    const newName = fontPackageMode.value ? buildFontPackageName(file.name) : file.name
+    const path = fontPackageMode.value ? `font-packages/${newName}` : buildFontPath(file.name)
     file.arrayBuffer().then((content) => {
       fontQueue.value.push({
         id: `${Date.now()}-${Math.random()}`,
         originalName: file.name,
-        newName: file.name,
+        newName,
         path,
         size: file.size,
         content,
@@ -702,17 +712,18 @@ async function fetchExistingSubtitles(): Promise<SubtitleFile[]> {
   }
 }
 
-async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
-  if (!selectedYear.value || !template.value.titleEn) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; fontPackages: FontPackageRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
+  if (!selectedYear.value || !template.value.titleEn) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
   const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
   try {
     const rUrl = readmeUrl(`${basePath}/README.md`)
     const res = await fetch(rUrl)
-    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    if (!res.ok) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
     const text = await res.text()
     const parsed = parseAnimeReadme(text)
     return {
       fonts: parsed.fonts,
+      fontPackages: parsed.fontPackages,
       coverUrl: parsed.coverUrl,
       titleCn: parsed.titleCn,
       languages: parsed.languages,
@@ -720,7 +731,7 @@ async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; coverUrl: 
       episodeTitles: parsed.episodeTitles,
     }
   } catch {
-    return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
   }
 }
 
@@ -748,15 +759,16 @@ async function fetchAnimeSubtitles(year: string, anime: string): Promise<Subtitl
   }
 }
 
-async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ fonts: FontRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
+async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ fonts: FontRef[]; fontPackages: FontPackageRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
   const basePath = `Anime subtitles/${year}/${anime}`
   try {
     const rUrl = readmeUrl(`${basePath}/README.md`)
     const res = await fetch(rUrl)
-    if (!res.ok) return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    if (!res.ok) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
     const parsed = parseAnimeReadme(await res.text())
     return {
       fonts: parsed.fonts,
+      fontPackages: parsed.fontPackages,
       coverUrl: parsed.coverUrl,
       titleCn: parsed.titleCn,
       languages: parsed.languages,
@@ -764,7 +776,7 @@ async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ font
       episodeTitles: parsed.episodeTitles,
     }
   } catch {
-    return { fonts: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
   }
 }
 
@@ -775,6 +787,13 @@ function getSubtitleLanguages(subtitles: SubtitleFile[], fallback: string[]): st
   }
   for (const lang of fallback) langs.add(lang)
   return Array.from(langs)
+}
+
+function buildFontPackageName(originalName: string): string {
+  const ext = originalName.match(/\.[^.]+$/)?.[0] || '.zip'
+  const linkedTemplate = fontLinkAnime.value ? findSavedTemplateForAnime(fontLinkAnime.value, fontLinkYear.value) : undefined
+  const title = linkedTemplate?.titleCn || template.value.titleCn || template.value.name || fontLinkAnime.value || template.value.titleEn || originalName.replace(/\.[^.]+$/, '')
+  return `${title} 字体整合包${ext}`
 }
 
 async function linkFontsToAnime(fonts: FontRef[], year: string, anime: string): Promise<{ added: number; skipped: number }> {
@@ -804,6 +823,7 @@ async function linkFontsToAnime(fonts: FontRef[], year: string, anime: string): 
     languages: getSubtitleLanguages(subtitles, info.languages),
     subtitles,
     fonts: info.fonts,
+    fontPackages: info.fontPackages,
     subtitleType: info.subtitleType,
     episodeTitles: info.episodeTitles,
   }
@@ -811,6 +831,45 @@ async function linkFontsToAnime(fonts: FontRef[], year: string, anime: string): 
   await uploadFiles(
     [{ path: readmePath, content: btoa(unescape(encodeURIComponent(newReadme))), encoding: 'base64' }],
     `feat: 关联字体到 ${anime}`
+  )
+  return { added, skipped }
+}
+
+async function linkFontPackagesToAnime(packages: FontPackageRef[], year: string, anime: string): Promise<{ added: number; skipped: number }> {
+  if (packages.length === 0) return { added: 0, skipped: 0 }
+  const basePath = `Anime subtitles/${year}/${anime}`
+  const readmePath = `${basePath}/README.md`
+  const info = await fetchAnimeReadmeInfo(year, anime)
+  const subtitles = await fetchAnimeSubtitles(year, anime)
+  let added = 0
+  let skipped = 0
+  for (const pkg of packages) {
+    const exists = info.fontPackages.some(f => f.name === pkg.name)
+    if (exists) {
+      skipped++
+      continue
+    }
+    info.fontPackages.push(pkg)
+    added++
+  }
+  if (added === 0) return { added, skipped }
+  const animeInfo = {
+    year,
+    folder: anime,
+    titleEn: anime,
+    titleCn: info.titleCn || template.value.titleCn,
+    coverUrl: info.coverUrl,
+    languages: getSubtitleLanguages(subtitles, info.languages),
+    subtitles,
+    fonts: info.fonts,
+    fontPackages: info.fontPackages,
+    subtitleType: info.subtitleType,
+    episodeTitles: info.episodeTitles,
+  }
+  const newReadme = generateAnimeReadme(animeInfo)
+  await uploadFiles(
+    [{ path: readmePath, content: btoa(unescape(encodeURIComponent(newReadme))), encoding: 'base64' }],
+    `feat: 关联字体整合包到 ${anime}`
   )
   return { added, skipped }
 }
@@ -849,6 +908,7 @@ async function commitSubtitles() {
     const coverUrl = template.value.coverUrl || existingInfo.coverUrl
     const titleCn = template.value.titleCn || existingInfo.titleCn
     const fonts = existingInfo.fonts
+    const fontPackages = existingInfo.fontPackages
 
     const allLanguages = new Set<string>()
     for (const sub of allSubs) {
@@ -864,6 +924,7 @@ async function commitSubtitles() {
       languages: Array.from(allLanguages),
       subtitles: allSubs,
       fonts,
+      fontPackages,
       subtitleType: template.value.subtitleType,
       episodeTitles: existingInfo.episodeTitles,
     }
@@ -913,6 +974,49 @@ async function commitFonts() {
   }
   uploading.value = true
   try {
+    if (fontPackageMode.value) {
+      const uploadedPackages: FontPackageRef[] = []
+      for (const item of fontQueue.value) {
+        item.status = 'uploading'
+        try {
+          const file = new File([item.content], item.newName)
+          const result = await uploadFontPackageToR2(file)
+          uploadedPackages.push({
+            name: item.newName,
+            path: result.key,
+            downloadUrl: result.downloadUrl,
+          })
+          item.status = 'done'
+        } catch (err: any) {
+          item.status = 'error'
+          item.error = err.message
+        }
+      }
+
+      let linkedMsg = ''
+      if (fontLinkYear.value && fontLinkAnime.value && uploadedPackages.length > 0) {
+        let r2Domain = ''
+        try {
+          const { domain } = await getR2Domain()
+          if (domain) r2Domain = domain.replace(/\/$/, '')
+        } catch {
+          // noop
+        }
+        const refs = uploadedPackages.map(pkg => ({
+          ...pkg,
+          downloadUrl: pkg.downloadUrl || (r2Domain ? `${r2Domain}/font-packages/${encodeURIComponent(pkg.name)}` : ''),
+        }))
+        const result = await linkFontPackagesToAnime(refs, fontLinkYear.value, fontLinkAnime.value)
+        linkedMsg = `，关联 ${result.added} 个字体整合包`
+        if (result.skipped > 0) linkedMsg += `，跳过 ${result.skipped} 个已关联`
+      }
+
+      const successCount = fontQueue.value.filter(item => item.status === 'done').length
+      message.success(`字体压缩包处理完成：${successCount} 个成功${linkedMsg}`)
+      fontQueue.value = []
+      return
+    }
+
     const existingFonts = await listR2Fonts().then(res => res.files || []).catch(() => [])
     const existingMap = new Map(existingFonts.map(f => [f.name, f]))
     const uploadedRefs: FontRef[] = []
@@ -993,6 +1097,10 @@ onMounted(async () => {
 watch(template, () => {
   persistCurrentTemplate()
 }, { deep: true })
+
+watch(fontPackageMode, () => {
+  fontQueue.value = []
+})
 
 onUnmounted(() => {
   document.removeEventListener('paste', onPaste)

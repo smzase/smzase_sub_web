@@ -222,7 +222,7 @@ export default {
         return await handleApi(request, url, env)
       }
 
-      if (url.pathname.startsWith('/fonts/')) {
+      if (url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/font-packages/')) {
         const key = decodeURIComponent(url.pathname.slice(1))
         const object = await env.R2.get(key)
         if (!object) {
@@ -371,6 +371,20 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const domain = (await env.subKV.get('config:r2_domain')) || ''
     const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/fonts/${encodeURIComponent(fileName)}` : ''
     return jsonResponse({ success: true, key, downloadUrl, fontName })
+  }
+
+  if (path === 'font-packages/upload' && request.method === 'POST') {
+    const contentType = request.headers.get('Content-Type') || 'application/octet-stream'
+    const fileName = decodeURIComponent(request.headers.get('X-File-Name') || 'unknown.zip')
+    const key = `font-packages/${fileName}`
+    const bodyBuffer = await request.arrayBuffer()
+    await env.R2.put(key, bodyBuffer, {
+      httpMetadata: { contentType },
+      customMetadata: { originalName: fileName },
+    })
+    const domain = (await env.subKV.get('config:r2_domain')) || ''
+    const downloadUrl = domain ? `${domain.replace(/\/$/, '')}/font-packages/${encodeURIComponent(fileName)}` : ''
+    return jsonResponse({ success: true, key, downloadUrl })
   }
 
   if (path.startsWith('fonts/download/') && request.method === 'GET') {

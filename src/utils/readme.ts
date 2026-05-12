@@ -1,4 +1,4 @@
-import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
+import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { downloadUrl } from './github'
 
 export function generateRootReadme(yearGroups: Array<{ year: string; animeList: Array<{ titleEn: string; titleCn: string }> }>): string {
@@ -110,6 +110,17 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `\n`
   }
 
+  if (anime.fontPackages && anime.fontPackages.length > 0) {
+    md += `## 字体整合包\n\n`
+    md += `| 压缩包名 |\n`
+    md += `| --- |\n`
+    for (const pkg of anime.fontPackages) {
+      const dl = pkg.downloadUrl || (pkg.path.startsWith('font-packages/') ? '' : downloadUrl(pkg.path))
+      md += `| ${dl ? `[${pkg.name}](${dl})` : pkg.name} |\n`
+    }
+    md += `\n`
+  }
+
   if (anime.fonts.length > 0) {
     md += `## 使用字体\n\n`
     md += `| 字体名 | 字体下载 |\n`
@@ -137,6 +148,7 @@ export function parseAnimeReadme(content: string): {
   titleCn: string
   languages: string[]
   fonts: FontRef[]
+  fontPackages: FontPackageRef[]
   subtitles: SubtitleFile[]
   subtitleType: string
   episodeTitles: Record<number, string>
@@ -146,6 +158,7 @@ export function parseAnimeReadme(content: string): {
     titleCn: '',
     languages: [] as string[],
     fonts: [] as FontRef[],
+    fontPackages: [] as FontPackageRef[],
     subtitles: [] as SubtitleFile[],
     subtitleType: 'bilingual',
     episodeTitles: {} as Record<number, string>,
@@ -156,7 +169,7 @@ export function parseAnimeReadme(content: string): {
     result.coverUrl = coverMatch[1]
   }
 
-  const sectionHeadings = ['字幕语言', '字幕列表', '使用字体']
+  const sectionHeadings = ['字幕语言', '字幕列表', '字体整合包', '使用字体']
   const cnMatches = content.match(/^## (.+)$/gm)
   if (cnMatches) {
     for (const m of cnMatches) {
@@ -190,11 +203,11 @@ export function parseAnimeReadme(content: string): {
     }
   }
 
-  const subSection = content.match(/## 字幕列表\n\n[\s\S]*?\n((?:\|[^|]+\|\n)+)/)
+  const subSection = content.match(/## 字幕列表\n\n([\s\S]*?)(?=\n##|$)/)
   if (subSection) {
-    const rows = subSection[1].trim().split('\n')
+    const rows = subSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
-      if (row.includes('---')) continue
+      if (row.includes('---') || row.includes('集数')) continue
       const cols = row.split('|').map(c => c.trim()).filter(c => c)
       if (cols.length < 2) continue
       const epLabel = cols[0]
@@ -208,11 +221,38 @@ export function parseAnimeReadme(content: string): {
     }
   }
 
-  const fontSection = content.match(/## 使用字体\n\n[\s\S]*?\n((?:\|[^|]+\|[^|]+\|\n)+)/)
-  if (fontSection) {
-    const rows = fontSection[1].trim().split('\n')
+  const fontPackageSection = content.match(/## 字体整合包\n\n([\s\S]*?)(?=\n##|$)/)
+  if (fontPackageSection) {
+    const rows = fontPackageSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
-      if (row.includes('---')) continue
+      if (row.includes('---') || row.includes('压缩包名')) continue
+      const cols = row.split('|').map(c => c.trim()).filter(c => c)
+      if (cols.length < 1) continue
+      const linkMatch = cols[0].match(/\[(.+?)\]\((.+?)\)/)
+      if (linkMatch) {
+        const fileName = linkMatch[1]
+        const dlUrl = linkMatch[2]
+        result.fontPackages.push({
+          name: fileName,
+          path: dlUrl.includes('/font-packages/') ? `font-packages/${fileName}` : `FontPackages/${fileName}`,
+          downloadUrl: dlUrl,
+        })
+      } else {
+        const fileName = cols[0]
+        result.fontPackages.push({
+          name: fileName,
+          path: `FontPackages/${fileName}`,
+          downloadUrl: '',
+        })
+      }
+    }
+  }
+
+  const fontSection = content.match(/## 使用字体\n\n([\s\S]*?)(?=\n##|$)/)
+  if (fontSection) {
+    const rows = fontSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
+    for (const row of rows) {
+      if (row.includes('---') || row.includes('字体名')) continue
       const cols = row.split('|').filter(c => c.trim())
       if (cols.length >= 2) {
         const displayName = cols[0].trim()

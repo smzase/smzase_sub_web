@@ -335,6 +335,7 @@ async function linkFontToAnime() {
       languages: parsed.languages,
       subtitles,
       fonts: parsed.fonts,
+      fontPackages: parsed.fontPackages,
       subtitleType: parsed.subtitleType || 'bilingual',
       episodeTitles: parsed.episodeTitles,
     }

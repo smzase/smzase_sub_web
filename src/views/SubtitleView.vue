@@ -70,9 +70,19 @@
                         <n-button size="tiny" @click="confirmBatchDelete = false">取消</n-button>
                       </n-space>
 
-                      <n-collapse v-if="animeDetail.fonts.length > 0" :default-expanded-names="[]">
+                      <n-collapse v-if="animeDetail.fontPackages?.length || animeDetail.fonts.length > 0" :default-expanded-names="[]">
                         <n-collapse-item title="使用字体" name="fonts">
                           <n-data-table
+                            v-if="animeDetail.fontPackages?.length"
+                            :columns="fontPackageColumns"
+                            :data="animeDetail.fontPackages"
+                            :row-key="(row: FontPackageRef) => row.name"
+                            :pagination="false"
+                            size="small"
+                            style="margin-bottom: 8px;"
+                          />
+                          <n-data-table
+                            v-if="animeDetail.fonts.length > 0"
                             :columns="fontRefColumns"
                             :data="animeDetail.fonts"
                             :row-key="(row: FontRef) => row.name"
@@ -139,9 +149,9 @@
 
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
-import { NButton, NSpace, NPopconfirm, useMessage } from 'naive-ui'
+import { NButton, NSpace, NPopconfirm, NTag, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
-import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
+import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
 import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles } from '../utils/api'
@@ -214,6 +224,13 @@ const subtitleColumns: DataTableColumns<SubtitleFile> = [
         }),
       ],
     }),
+  },
+]
+
+const fontPackageColumns: DataTableColumns<FontPackageRef> = [
+  {
+    title: '字体整合包', key: 'name',
+    render: (row) => h(NTag, { type: 'success', bordered: false }, { default: () => row.name }),
   },
 ]
 
@@ -427,6 +444,21 @@ async function updateReadme() {
   }
 }
 
+async function mergeKvEpisodeTitles(key: string, titles: Record<number, string>): Promise<Record<number, string>> {
+  const merged = { ...titles }
+  try {
+    const result = await apiGetEpisodeTitles()
+    const kvTitles = result.episodeTitles[key] || {}
+    for (const [epStr, title] of Object.entries(kvTitles)) {
+      const epNum = parseInt(epStr, 10)
+      if (!isNaN(epNum) && title) merged[epNum] = title
+    }
+  } catch {
+    // noop
+  }
+  return merged
+}
+
 async function refreshAnimeReadme(year: string, folder: string) {
   const key = `${year}/${folder}`
   animeReadmeLoading.value = key
@@ -439,6 +471,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
     let coverUrl = ''
     let languages: string[] = []
     let readmeFonts: FontRef[] = []
+    let fontPackages: FontPackageRef[] = []
     let subtitleType = 'bilingual'
     let episodeTitles: Record<number, string> = {}
 
@@ -453,6 +486,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
         coverUrl = parsed.coverUrl
         languages = parsed.languages
         readmeFonts = parsed.fonts
+        fontPackages = parsed.fontPackages
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
       }
@@ -480,6 +514,8 @@ async function refreshAnimeReadme(year: string, folder: string) {
       languages = Array.from(langSet)
     }
 
+    episodeTitles = await mergeKvEpisodeTitles(key, episodeTitles)
+
     const animeInfo: AnimeInfo = {
       year,
       folder,
@@ -489,6 +525,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
       languages,
       subtitles,
       fonts: readmeFonts,
+      fontPackages,
       subtitleType,
       episodeTitles,
     }
@@ -648,6 +685,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
     let coverUrl = ''
     let languages: string[] = []
     let readmeFonts: FontRef[] = []
+    let fontPackages: FontPackageRef[] = []
     let subtitleType = 'bilingual'
     let episodeTitles: Record<number, string> = {}
 
@@ -662,6 +700,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
         coverUrl = parsed.coverUrl
         languages = parsed.languages
         readmeFonts = parsed.fonts
+        fontPackages = parsed.fontPackages
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
       }
@@ -698,6 +737,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
       languages,
       subtitles,
       fonts: readmeFonts,
+      fontPackages,
       subtitleType: subtitleType,
       episodeTitles,
     }
