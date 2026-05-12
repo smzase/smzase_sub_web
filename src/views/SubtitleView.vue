@@ -311,16 +311,49 @@ async function doBatchDelete() {
   }
 }
 
+async function collectYearAnimeList(year: string): Promise<Array<{ titleEn: string; titleCn: string }>> {
+  const yearContents = await getContents(`Anime subtitles/${year}`)
+  if (!yearContents || !Array.isArray(yearContents)) return []
+  const animeDirs = yearContents.filter((c: any) => c.type === 'dir')
+  const templateNames = await apiGetTemplates().then(res => getTemplateNames(res.templates || [], year)).catch(() => ({} as Record<string, string>))
+  const existingYearNames: Record<string, string> = {}
+  const yearReadmeFile = yearContents.find((c: any) => c.type === 'file' && c.name === 'README.md')
+  if (yearReadmeFile) {
+    const res = await fetch(readmeUrl(`Anime subtitles/${year}/README.md`))
+    if (res.ok) Object.assign(existingYearNames, parseYearReadme(await res.text()))
+  }
+  const animeList: Array<{ titleEn: string; titleCn: string }> = []
+  for (const dir of animeDirs) {
+    let titleCn = templateNames[dir.name] || existingYearNames[dir.name] || ''
+    const readmeFile = await getContents(`Anime subtitles/${year}/${dir.name}/README.md`)
+    if (readmeFile && readmeFile.name === 'README.md') {
+      const rUrl = readmeUrl(`Anime subtitles/${year}/${dir.name}/README.md`)
+      const res = await fetch(rUrl)
+      if (res.ok) {
+        const text = await res.text()
+        const parsed = parseAnimeReadme(text)
+        if (parsed.titleCn) titleCn = parsed.titleCn
+      }
+    }
+    animeList.push({ titleEn: dir.name, titleCn })
+  }
+  return animeList
+}
+
 async function refreshRootReadme() {
   rootReadmeLoading.value = true
   try {
     const contents = await getContents('Anime subtitles')
     if (!contents || !Array.isArray(contents)) return
-    const yearList = contents
+    const years = contents
       .filter((c: any) => c.type === 'dir')
       .map((c: any) => c.name)
-      .sort((a: string, b: string) => b.localeCompare(a))
-    const readmeContent = generateRootReadme(yearList)
+      .sort((a: string, b: string) => a.localeCompare(b))
+    const yearGroups = []
+    for (const year of years) {
+      yearGroups.push({ year, animeList: await collectYearAnimeList(year) })
+    }
+    const readmeContent = generateRootReadme(yearGroups)
     await uploadFiles(
       [{ path: 'Anime subtitles/README.md', content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' }],
       `docs: 更新 Anime subtitles README`
@@ -335,31 +368,7 @@ async function refreshRootReadme() {
 
 async function updateYearReadme(year: string) {
   try {
-    const yearContents = await getContents(`Anime subtitles/${year}`)
-    if (!yearContents || !Array.isArray(yearContents)) return
-    const animeDirs = yearContents.filter((c: any) => c.type === 'dir')
-    const templateNames = await apiGetTemplates().then(res => getTemplateNames(res.templates || [], year)).catch(() => ({} as Record<string, string>))
-    const existingYearNames: Record<string, string> = {}
-    const yearReadmeFile = yearContents.find((c: any) => c.type === 'file' && c.name === 'README.md')
-    if (yearReadmeFile) {
-      const res = await fetch(readmeUrl(`Anime subtitles/${year}/README.md`))
-      if (res.ok) Object.assign(existingYearNames, parseYearReadme(await res.text()))
-    }
-    const animeList: Array<{ titleEn: string; titleCn: string }> = []
-    for (const dir of animeDirs) {
-      let titleCn = templateNames[dir.name] || existingYearNames[dir.name] || ''
-      const readmeFile = await getContents(`Anime subtitles/${year}/${dir.name}/README.md`)
-      if (readmeFile && readmeFile.name === 'README.md') {
-        const rUrl = readmeUrl(`Anime subtitles/${year}/${dir.name}/README.md`)
-        const res = await fetch(rUrl)
-        if (res.ok) {
-          const text = await res.text()
-          const parsed = parseAnimeReadme(text)
-          if (parsed.titleCn) titleCn = parsed.titleCn
-        }
-      }
-      animeList.push({ titleEn: dir.name, titleCn })
-    }
+    const animeList = await collectYearAnimeList(year)
     const readmeContent = generateYearReadme(year, animeList)
     await uploadFiles(
       [{ path: `Anime subtitles/${year}/README.md`, content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' }],

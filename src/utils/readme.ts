@@ -1,13 +1,17 @@
 import type { AnimeInfo, SubtitleFile, FontRef } from '../types'
 import { downloadUrl } from './github'
 
-export function generateRootReadme(years: string[]): string {
+export function generateRootReadme(yearGroups: Array<{ year: string; animeList: Array<{ titleEn: string; titleCn: string }> }>): string {
   let md = `# Anime subtitles\n\n`
-  md += `| 年份 |\n`
-  md += `| --- |\n`
-  for (const year of years) {
-    const encodedPath = encodeURIComponent(year)
-    md += `| [${year}](./${encodedPath}/) |\n`
+  for (const group of yearGroups) {
+    md += `## ${group.year}\n\n`
+    md += `| 标题 | 中文名 |\n`
+    md += `| --- | --- |\n`
+    for (const anime of group.animeList) {
+      const encodedTitle = anime.titleEn.split('/').map(s => encodeURIComponent(s)).join('/')
+      md += `| [${anime.titleEn}](./${encodeURIComponent(group.year)}/${encodedTitle}/) | ${anime.titleCn || ''} |\n`
+    }
+    md += `\n`
   }
   return md
 }
