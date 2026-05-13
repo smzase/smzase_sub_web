@@ -38,7 +38,7 @@ export async function apiFetch(path: string, options?: RequestInit): Promise<any
   return data
 }
 
-export async function getAuthStatus(): Promise<{ configured: boolean }> {
+export async function getAuthStatus(): Promise<{ configured: boolean; secondPasswordEnabled: boolean }> {
   return apiFetch('auth/status')
 }
 
@@ -49,10 +49,32 @@ export async function setupAccount(username: string, password: string): Promise<
   })
 }
 
-export async function login(username: string, password: string): Promise<{ token: string }> {
+export async function login(username: string, password: string, secondPassword?: string): Promise<{ token: string }> {
   return apiFetch('auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, secondPassword }),
+  })
+}
+
+export async function getAccount(): Promise<{ username: string }> {
+  return apiFetch('auth/account')
+}
+
+export async function updateAccount(payload: { username?: string; oldPassword?: string; newPassword?: string }): Promise<any> {
+  return apiFetch('auth/account', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getSecondPasswordSettings(): Promise<{ enabled: boolean; configured: boolean }> {
+  return apiFetch('auth/second-password')
+}
+
+export async function saveSecondPasswordSettings(settings: { enabled: boolean; password?: string }): Promise<any> {
+  return apiFetch('auth/second-password', {
+    method: 'POST',
+    body: JSON.stringify(settings),
   })
 }
 

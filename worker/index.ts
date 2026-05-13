@@ -180,6 +180,35 @@ async function hashPassword(password: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
+async function getCredentials(env: Env): Promise<{ username: string; password: string } | null> {
+  const encrypted = await env.subKV.get('auth:credentials')
+  if (!encrypted) return null
+  try {
+    return JSON.parse(await decrypt(encrypted))
+  } catch {
+    return null
+  }
+}
+
+async function saveCredentials(env: Env, credentials: { username: string; password: string }): Promise<void> {
+  await env.subKV.put('auth:credentials', await encrypt(JSON.stringify(credentials)))
+}
+
+async function getSecondPasswordSettings(env: Env): Promise<{ enabled: boolean; password: string }> {
+  const encrypted = await env.subKV.get('auth:second_password')
+  if (!encrypted) return { enabled: false, password: '' }
+  try {
+    const settings = JSON.parse(await decrypt(encrypted))
+    return { enabled: !!settings.enabled, password: settings.password || '' }
+  } catch {
+    return { enabled: false, password: '' }
+  }
+}
+
+async function saveSecondPasswordSettings(env: Env, settings: { enabled: boolean; password: string }): Promise<void> {
+  await env.subKV.put('auth:second_password', await encrypt(JSON.stringify(settings)))
+}
+
 function corsHeaders(): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
@@ -265,34 +294,33 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     if (existing) return jsonResponse({ error: 'Account already exists' }, 400)
     const body = await request.json() as { username: string; password: string }
     if (!body.username || !body.password) return jsonResponse({ error: 'Missing fields' }, 400)
-    const hashed = await hashPassword(body.password)
-    const encrypted = await encrypt(JSON.stringify({ username: body.username, password: hashed }))
-    await env.subKV.put('auth:credentials', encrypted)
+    await saveCredentials(env, { username: body.username, password: await hashPassword(body.password) })
     return jsonResponse({ success: true })
   }
 
   if (path === 'auth/login' && request.method === 'POST') {
-    const body = await request.json() as { username: string; password: string }
-    const encrypted = await env.subKV.get('auth:credentials')
-    if (!encrypted) return jsonResponse({ error: 'No account configured' }, 400)
-    try {
-      const decrypted = await decrypt(encrypted)
-      const creds = JSON.parse(decrypted)
-      const hashed = await hashPassword(body.password)
-      if (creds.username === body.username && creds.password === hashed) {
-        const sessionId = crypto.randomUUID()
-        await env.subKV.put('session:active', JSON.stringify({ username: body.username, token: sessionId }), { expirationTtl: 86400 * 7 })
-        return jsonResponse({ token: sessionId })
-      }
-    } catch {
-      // noop
+    const body = await request.json() as { username: string; password: string; secondPassword?: string }
+    const creds = await getCredentials(env)
+    if (!creds) return jsonResponse({ error: 'No account configured' }, 400)
+    const secondPasswordSettings = await getSecondPasswordSettings(env)
+    const hashed = await hashPassword(body.password)
+    const secondPasswordValid = !secondPasswordSettings.enabled || (
+      !!body.secondPassword &&
+      !!secondPasswordSettings.password &&
+      secondPasswordSettings.password === await hashPassword(body.secondPassword)
+    )
+    if (creds.username === body.username && creds.password === hashed && secondPasswordValid) {
+      const sessionId = crypto.randomUUID()
+      await env.subKV.put('session:active', JSON.stringify({ username: body.username, token: sessionId }), { expirationTtl: 86400 * 7 })
+      return jsonResponse({ token: sessionId })
     }
     return jsonResponse({ error: 'Invalid credentials' }, 401)
   }
 
   if (path === 'auth/status' && request.method === 'GET') {
     const existing = await env.subKV.get('auth:credentials')
-    return jsonResponse({ configured: !!existing })
+    const secondPasswordSettings = await getSecondPasswordSettings(env)
+    return jsonResponse({ configured: !!existing, secondPasswordEnabled: secondPasswordSettings.enabled })
   }
 
   if (path === 'auth/logout' && request.method === 'POST') {
@@ -331,6 +359,43 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const body = await request.json() as { domain: string }
     await env.subKV.put('config:r2_domain', body.domain)
     return jsonResponse({ success: true })
+  }
+
+  if (path === 'auth/account' && request.method === 'GET') {
+    const creds = await getCredentials(env)
+    return jsonResponse({ username: creds?.username || '' })
+  }
+
+  if (path === 'auth/account' && request.method === 'POST') {
+    const body = await request.json() as { username?: string; oldPassword?: string; newPassword?: string }
+    const creds = await getCredentials(env)
+    if (!creds) return jsonResponse({ error: 'No account configured' }, 400)
+    const username = body.username?.trim() || creds.username
+    const nextCredentials = { username, password: creds.password }
+    if (body.newPassword) {
+      if (!body.oldPassword) return jsonResponse({ error: 'Missing old password' }, 400)
+      if (creds.password !== await hashPassword(body.oldPassword)) return jsonResponse({ error: 'Invalid old password' }, 400)
+      nextCredentials.password = await hashPassword(body.newPassword)
+    }
+    await saveCredentials(env, nextCredentials)
+    await env.subKV.delete('session:active')
+    return jsonResponse({ success: true })
+  }
+
+  if (path === 'auth/second-password' && request.method === 'GET') {
+    const settings = await getSecondPasswordSettings(env)
+    return jsonResponse({ enabled: settings.enabled, configured: !!settings.password })
+  }
+
+  if (path === 'auth/second-password' && request.method === 'POST') {
+    const body = await request.json() as { enabled?: boolean; password?: string }
+    const current = await getSecondPasswordSettings(env)
+    const enabled = !!body.enabled
+    let password = current.password
+    if (body.password) password = await hashPassword(body.password)
+    if (enabled && !password) return jsonResponse({ error: 'Missing second password' }, 400)
+    await saveSecondPasswordSettings(env, { enabled, password })
+    return jsonResponse({ success: true, enabled, configured: !!password })
   }
 
   if (path === 'upload-settings' && request.method === 'GET') {
