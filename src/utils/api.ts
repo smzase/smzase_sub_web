@@ -159,6 +159,17 @@ export async function saveEpisodeTitles(episodeTitles: Record<string, Record<str
   })
 }
 
+export async function getAnimeDescriptions(): Promise<{ descriptions: Record<string, string> }> {
+  return apiFetch('anime-descriptions')
+}
+
+export async function saveAnimeDescriptions(descriptions: Record<string, string>): Promise<any> {
+  return apiFetch('anime-descriptions', {
+    method: 'POST',
+    body: JSON.stringify({ descriptions }),
+  })
+}
+
 export async function getReadmeCache(path: string): Promise<{ content: string; key?: string }> {
   return apiFetch(`readme-cache?path=${encodeURIComponent(path)}`)
 }

@@ -36,7 +36,7 @@
                       <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
                       <n-button size="tiny" :loading="sortLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeSort(year, anime.folder)">刷新排序</n-button>
                       <n-button size="tiny" @click.stop="openTemplateLinkModal(year, anime.folder)">关联模板</n-button>
-                      <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑集数标题</n-button>
+                      <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑简介/集标题</n-button>
                     </n-space>
                   </template>
                 </n-thing>
@@ -157,13 +157,25 @@
       </template>
     </n-modal>
 
-    <n-modal v-model:show="showEpisodeTitleModal" preset="card" title="编辑集数标题" style="width: 520px;">
-      <n-form label-placement="left" label-width="80">
-        <n-form-item v-for="ep in episodeTitleList" :key="ep.episode" :label="`EP${String(ep.episode).padStart(2, '0')}`">
-          <n-input v-model:value="ep.title" placeholder="输入本集标题" />
-        </n-form-item>
-      </n-form>
-      <n-empty v-if="episodeTitleList.length === 0" description="暂无集数" />
+    <n-modal v-model:show="showEpisodeTitleModal" preset="card" title="编辑简介/集标题" style="width: 560px;">
+      <n-collapse v-model:expanded-names="introTitleExpandedNames">
+        <n-collapse-item title="集标题" name="episode-titles">
+          <n-form label-placement="left" label-width="80">
+            <n-form-item v-for="ep in episodeTitleList" :key="ep.episode" :label="`EP${String(ep.episode).padStart(2, '0')}`">
+              <n-input v-model:value="ep.title" placeholder="输入本集标题" />
+            </n-form-item>
+          </n-form>
+          <n-empty v-if="episodeTitleList.length === 0" description="暂无集数" />
+        </n-collapse-item>
+        <n-collapse-item title="简介" name="description">
+          <n-input
+            v-model:value="animeDescription"
+            type="textarea"
+            placeholder="输入简介"
+            :autosize="{ minRows: 5, maxRows: 12 }"
+          />
+        </n-collapse-item>
+      </n-collapse>
       <template #action>
         <n-space>
           <n-button @click="showEpisodeTitleModal = false">取消</n-button>
@@ -181,7 +193,7 @@ import type { DataTableColumns, UploadCustomRequestOptions, SelectOption } from 
 import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, getFileText, moveFiles } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
-import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles, getAnimeTemplateLinks, saveAnimeTemplateLinks } from '../utils/api'
+import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles, getAnimeTemplateLinks, saveAnimeTemplateLinks, getAnimeDescriptions, saveAnimeDescriptions } from '../utils/api'
 
 interface AnimeListItem {
   folder: string
@@ -384,6 +396,8 @@ const showEpisodeTitleModal = ref(false)
 const savingEpisodeTitles = ref(false)
 const episodeTitleLoading = ref('')
 const episodeTitleList = ref<Array<{ episode: number; title: string }>>([])
+const animeDescription = ref('')
+const introTitleExpandedNames = ref(['episode-titles'])
 const showTemplateLinkModal = ref(false)
 const templateLinkLoading = ref(false)
 const savingTemplateLink = ref(false)
@@ -730,6 +744,15 @@ async function mergeKvEpisodeTitles(key: string, titles: Record<number, string>)
   return merged
 }
 
+async function mergeKvDescription(key: string, description: string): Promise<string> {
+  try {
+    const result = await getAnimeDescriptions()
+    return result.descriptions[key] || description
+  } catch {
+    return description
+  }
+}
+
 async function refreshAnimeReadme(year: string, folder: string) {
   const key = `${year}/${folder}`
   animeReadmeLoading.value = key
@@ -745,6 +768,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
     let fontPackages: FontPackageRef[] = []
     let subtitleType = 'bilingual'
     let episodeTitles: Record<number, string> = {}
+    let description = ''
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
@@ -758,6 +782,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
         fontPackages = parsed.fontPackages
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
+        description = parsed.description
       }
     }
 
@@ -792,6 +817,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
     }
 
     episodeTitles = await mergeKvEpisodeTitles(key, episodeTitles)
+    description = await mergeKvDescription(key, description)
 
     const animeInfo: AnimeInfo = {
       year,
@@ -805,6 +831,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
       fontPackages,
       subtitleType,
       episodeTitles,
+      description,
     }
 
     const readmePath = `${basePath}/README.md`
@@ -891,6 +918,15 @@ async function openEpisodeTitleModal(year: string, folder: string) {
       episode: ep,
       title: mergedTitles[ep] || '',
     }))
+    let description = ''
+    try {
+      const descriptions = await getAnimeDescriptions()
+      description = descriptions.descriptions[key] || ''
+    } catch {
+      // noop
+    }
+    animeDescription.value = description || animeDetail.value.description || ''
+    introTitleExpandedNames.value = ['episode-titles']
     showEpisodeTitleModal.value = true
   } finally {
     episodeTitleLoading.value = ''
@@ -906,6 +942,7 @@ async function saveEpisodeTitles() {
       if (ep.title.trim()) titles[ep.episode] = ep.title.trim()
     }
     animeDetail.value.episodeTitles = titles
+    animeDetail.value.description = animeDescription.value.trim()
     await updateReadme()
     const key = `${animeDetail.value.year}/${animeDetail.value.folder}`
     let allTitles: Record<string, Record<string, string>> = {}
@@ -921,8 +958,22 @@ async function saveEpisodeTitles() {
     }
     allTitles[key] = kvItem
     await apiSaveEpisodeTitles(allTitles)
+    let allDescriptions: Record<string, string> = {}
+    try {
+      const result = await getAnimeDescriptions()
+      allDescriptions = result.descriptions
+    } catch {
+      // noop
+    }
+    const description = animeDescription.value.trim()
+    if (description) {
+      allDescriptions[key] = description
+    } else {
+      delete allDescriptions[key]
+    }
+    await saveAnimeDescriptions(allDescriptions)
     showEpisodeTitleModal.value = false
-    message.success('集数标题已保存')
+    message.success('简介/集标题已保存')
   } catch (err: any) {
     message.error(`保存失败: ${err.message}`)
   } finally {
@@ -1005,6 +1056,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
     let fontPackages: FontPackageRef[] = []
     let subtitleType = 'bilingual'
     let episodeTitles: Record<number, string> = {}
+    let description = ''
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
@@ -1018,6 +1070,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
         fontPackages = parsed.fontPackages
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
+        description = parsed.description
       }
     }
 
@@ -1051,6 +1104,9 @@ async function toggleAnimeDetail(year: string, folder: string) {
       languages = Array.from(langSet)
     }
 
+    episodeTitles = await mergeKvEpisodeTitles(key, episodeTitles)
+    description = await mergeKvDescription(key, description)
+
     animeDetail.value = {
       year,
       folder,
@@ -1063,6 +1119,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
       fontPackages,
       subtitleType: subtitleType,
       episodeTitles,
+      description,
     }
   } catch (err: any) {
     message.error(`加载详情失败: ${err.message}`)

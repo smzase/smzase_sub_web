@@ -61,6 +61,10 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `## ${anime.titleCn}\n\n`
   }
 
+  if (anime.description?.trim()) {
+    md += `${anime.description.trim()}\n\n`
+  }
+
   if (anime.languages.length > 0) {
     md += `## 字幕语言\n\n`
     const langOrder: Record<string, number> = { 'zh-hans': 0, 'zh-hant': 1 }
@@ -152,6 +156,7 @@ export function parseAnimeReadme(content: string): {
   subtitles: SubtitleFile[]
   subtitleType: string
   episodeTitles: Record<number, string>
+  description: string
 } {
   const result = {
     coverUrl: '',
@@ -162,6 +167,7 @@ export function parseAnimeReadme(content: string): {
     subtitles: [] as SubtitleFile[],
     subtitleType: 'bilingual',
     episodeTitles: {} as Record<number, string>,
+    description: '',
   }
 
   const coverMatch = content.match(/!\[.*?\]\((.*?)\)/)
@@ -178,6 +184,14 @@ export function parseAnimeReadme(content: string): {
         result.titleCn = title
         break
       }
+    }
+  }
+
+  if (result.titleCn) {
+    const escapedTitle = result.titleCn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const descriptionMatch = content.match(new RegExp(`^## ${escapedTitle}\\n\\n([\\s\\S]*?)(?=\\n## |$)`, 'm'))
+    if (descriptionMatch) {
+      result.description = descriptionMatch[1].trim()
     }
   }
 

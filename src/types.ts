@@ -10,6 +10,7 @@ export interface AnimeInfo {
   fontPackages?: FontPackageRef[]
   subtitleType: string
   episodeTitles?: Record<number, string>
+  description?: string
 }
 
 export interface SubtitleFile {

@@ -462,6 +462,17 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ success: true })
   }
 
+  if (path === 'anime-descriptions' && request.method === 'GET') {
+    const raw = await env.subKV.get('animeDescriptions:list')
+    return jsonResponse({ descriptions: raw ? JSON.parse(raw) : {} })
+  }
+
+  if (path === 'anime-descriptions' && request.method === 'POST') {
+    const body = await request.json() as { descriptions: Record<string, string> }
+    await env.subKV.put('animeDescriptions:list', JSON.stringify(body.descriptions || {}))
+    return jsonResponse({ success: true })
+  }
+
   if (path === 'readme-cache' && request.method === 'GET') {
     const targetPath = new URL(request.url).searchParams.get('path') || ''
     if (!targetPath.endsWith('README.md')) return jsonResponse({ error: 'Invalid README path' }, 400)
