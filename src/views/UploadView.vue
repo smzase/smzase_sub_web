@@ -266,7 +266,7 @@ import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../t
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import type { SubtitleLanguageConfig } from '../utils/rename'
 import { uploadFiles, getToken, getContents, downloadUrl, getFileText } from '../utils/github'
-import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, getSubtitleLanguageConfig, saveSubtitleLanguageConfig, getUploadSettings, listR2Fonts, getR2Domain } from '../utils/api'
+import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, getSubtitleLanguageConfig, saveSubtitleLanguageConfig, getUploadSettings, listR2Fonts, getR2Domain, getAnimeTemplateLinks, saveAnimeTemplateLinks } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -550,6 +550,25 @@ async function persistTemplates() {
   await apiSaveTemplates(savedTemplates.value)
 }
 
+function getTemplateLinkKey(t: UploadTemplate): string {
+  return `${t.year || ''}/${t.titleEn || t.name || ''}`
+}
+
+async function autoLinkTemplate(t: UploadTemplate): Promise<boolean> {
+  if (!t.year || !t.titleEn || !getToken()) return false
+  const contents = await getContents(`Anime subtitles/${t.year}`).catch(() => null)
+  if (!contents || !Array.isArray(contents)) return false
+  const matchedFolder = contents.find((item: any) => item.type === 'dir' && item.name === t.titleEn)
+  if (!matchedFolder) return false
+  const animeKey = `${t.year}/${matchedFolder.name}`
+  const templateKey = getTemplateLinkKey(t)
+  const result = await getAnimeTemplateLinks().catch(() => ({ links: {} as Record<string, string> }))
+  const links = result.links || {}
+  if (links[animeKey]) return false
+  await saveAnimeTemplateLinks({ ...links, [animeKey]: templateKey })
+  return true
+}
+
 async function saveTemplate() {
   if (!template.value.name && !template.value.titleEn) {
     message.warning('请先填写模板名称或英文标题')
@@ -557,8 +576,9 @@ async function saveTemplate() {
   }
   const name = template.value.name || template.value.titleEn
   const copy = { ...template.value, name }
-  if (editingTemplateIndex.value !== null && savedTemplates.value[editingTemplateIndex.value]) {
-    savedTemplates.value[editingTemplateIndex.value] = copy
+  const isEditing = editingTemplateIndex.value !== null && !!savedTemplates.value[editingTemplateIndex.value]
+  if (isEditing) {
+    savedTemplates.value[editingTemplateIndex.value!] = copy
   } else {
     const idx = savedTemplates.value.findIndex(t => (t.name || t.titleEn) === name)
     if (idx >= 0) savedTemplates.value[idx] = copy
@@ -566,7 +586,11 @@ async function saveTemplate() {
   }
   await persistTemplates()
   await persistSubtitleLanguageConfig()
-  message.success(`模板 "${name}" 已保存`)
+  let linked = false
+  if (!isEditing) {
+    linked = await autoLinkTemplate(copy).catch(() => false)
+  }
+  message.success(`模板 "${name}" 已保存${linked ? '，已自动关联字幕文件夹' : ''}`)
   editingTemplateIndex.value = null
 }
 
