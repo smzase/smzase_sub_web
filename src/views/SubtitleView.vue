@@ -34,6 +34,7 @@
                       </n-tag>
                       <n-tag size="small" type="info">{{ anime.subtitleCount }} 个字幕</n-tag>
                       <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
+                      <n-button size="tiny" :loading="sortLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeSort(year, anime.folder)">刷新排序</n-button>
                       <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑集数标题</n-button>
                     </n-space>
                   </template>
@@ -152,7 +153,7 @@ import { ref, h, onMounted } from 'vue'
 import { NButton, NSpace, NPopconfirm, NTag, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
-import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, getFileText } from '../utils/github'
+import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, getFileText, moveFiles } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
 import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles } from '../utils/api'
 
@@ -178,6 +179,29 @@ function getTemplateNames(templates: StoredTemplate[], year: string): Record<str
   return names
 }
 
+function getSubtitleSortValue(sub: SubtitleFile): number {
+  const langOrder: Record<string, number> = { 'zh-hans': 0, 'zh-hant': 1 }
+  return sub.episode * 10 + (langOrder[sub.lang] ?? 9)
+}
+
+function sortSubtitles(subtitles: SubtitleFile[]): SubtitleFile[] {
+  return [...subtitles].sort((a, b) => {
+    const diff = getSubtitleSortValue(a) - getSubtitleSortValue(b)
+    if (diff !== 0) return diff
+    return a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' })
+  })
+}
+
+function parseRawSubtitleName(name: string): { episode: number; lang: string } | null {
+  const match = name.match(/^(\d+)\.(zh-hans|zh-hant)\.ass$/i)
+  if (!match) return null
+  return { episode: parseInt(match[1], 10), lang: match[2].toLowerCase() }
+}
+
+function buildRenamedSubtitleName(folder: string, episode: number, lang: string): string {
+  return `[smzase] ${folder} - S01E${String(episode).padStart(2, '0')}.${lang}.ass`
+}
+
 const message = useMessage()
 const loading = ref(false)
 const detailLoading = ref(false)
@@ -199,6 +223,7 @@ const fontBatchRemoving = ref(false)
 const yearReadmeLoading = ref('')
 const rootReadmeLoading = ref(false)
 const animeReadmeLoading = ref('')
+const sortLoading = ref('')
 const showEpisodeTitleModal = ref(false)
 const savingEpisodeTitles = ref(false)
 const episodeTitleLoading = ref('')
@@ -564,7 +589,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
     }
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
-    const subtitles: SubtitleFile[] = assFiles.map((f: any) => {
+    const subtitles: SubtitleFile[] = sortSubtitles(assFiles.map((f: any) => {
       const epMatch = f.name.match(/E(\d+)/)
       const langMatch = f.name.match(/\.(zh-hans|zh-hant)\./)
       return {
@@ -575,7 +600,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
         lang: langMatch ? langMatch[1] : '',
         downloadUrl: downloadUrl(`${basePath}/${f.name}`),
       }
-    })
+    }))
 
     if (languages.length === 0) {
       const langSet = new Set<string>()
@@ -612,6 +637,41 @@ async function refreshAnimeReadme(year: string, folder: string) {
     message.error(`更新失败: ${err.message}`)
   } finally {
     animeReadmeLoading.value = ''
+  }
+}
+
+async function refreshAnimeSort(year: string, folder: string) {
+  const key = `${year}/${folder}`
+  sortLoading.value = key
+  try {
+    const basePath = `Anime subtitles/${year}/${folder}`
+    const contents = await getContents(basePath)
+    if (contents && Array.isArray(contents)) {
+      const existingNames = new Set(contents.map((item: any) => item.name))
+      const moves: Array<{ from: string; to: string }> = []
+      for (const item of contents) {
+        if (item.type !== 'file') continue
+        const parsed = parseRawSubtitleName(item.name)
+        if (!parsed) continue
+        const newName = buildRenamedSubtitleName(folder, parsed.episode, parsed.lang)
+        if (newName === item.name || existingNames.has(newName)) continue
+        moves.push({ from: `${basePath}/${item.name}`, to: `${basePath}/${newName}` })
+        existingNames.add(newName)
+      }
+      if (moves.length > 0) {
+        await moveFiles(moves, `chore: 重命名 ${folder} 原始字幕文件`)
+      }
+    }
+    await refreshAnimeReadme(year, folder)
+    if (expandedAnime.value === key) {
+      expandedAnime.value = ''
+      await toggleAnimeDetail(year, folder)
+    }
+    message.success(`${folder} 字幕排序已刷新`)
+  } catch (err: any) {
+    message.error(`刷新排序失败: ${err.message}`)
+  } finally {
+    sortLoading.value = ''
   }
 }
 
@@ -776,7 +836,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
     }
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
-    const subtitles: SubtitleFile[] = assFiles.map((f: any) => {
+    const subtitles: SubtitleFile[] = sortSubtitles(assFiles.map((f: any) => {
       const epMatch = f.name.match(/E(\d+)/)
       const langMatch = f.name.match(/\.(zh-hans|zh-hant)\./)
       return {
@@ -787,7 +847,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
         lang: langMatch ? langMatch[1] : '',
         downloadUrl: downloadUrl(`${basePath}/${f.name}`),
       }
-    })
+    }))
 
     if (languages.length === 0) {
       const langSet = new Set<string>()

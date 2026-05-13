@@ -260,3 +260,27 @@ export async function deleteFolder(folderPath: string, message: string, branch =
   const newCommitSha = await createCommit(message, newTreeSha, refSha)
   await updateRef(newCommitSha, branch)
 }
+
+export async function moveFiles(
+  moves: Array<{ from: string; to: string }>,
+  message: string,
+  branch = 'main'
+): Promise<void> {
+  if (moves.length === 0) return
+  const refSha = await getRef(branch)
+  const commit = await getCommit(refSha)
+  const baseTreeSha = commit.tree.sha
+  const tree = await getTree(baseTreeSha)
+  const allFiles = tree.tree || []
+  const treeItems: Array<{ path: string; mode: string; type: string; sha: string | null }> = []
+  for (const move of moves) {
+    const item = allFiles.find((f: any) => f.path === move.from && f.type === 'blob')
+    if (!item) continue
+    treeItems.push({ path: move.from, mode: '100644', type: 'blob', sha: null })
+    treeItems.push({ path: move.to, mode: '100644', type: 'blob', sha: item.sha })
+  }
+  if (treeItems.length === 0) return
+  const newTreeSha = await createTree(baseTreeSha, treeItems)
+  const newCommitSha = await createCommit(message, newTreeSha, refSha)
+  await updateRef(newCommitSha, branch)
+}

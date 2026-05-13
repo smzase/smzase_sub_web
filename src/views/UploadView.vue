@@ -278,6 +278,7 @@ interface QueueItem {
 
 const CURRENT_TEMPLATE_KEY = 'smzase_current_template'
 const DEFAULT_SUBTITLE_LANGUAGE_CONFIG: SubtitleLanguageConfig = { hans: 'zh-hans', hant: 'zh-hant' }
+const GITHUB_WEB_UPLOAD_LIMIT = 25 * 1024 * 1024
 
 const message = useMessage()
 const uploadTab = ref('subtitle')
@@ -788,6 +789,10 @@ function processSubtitleFiles(files: File[]) {
   for (const file of files) {
     if (!file.name.endsWith('.ass')) {
       message.error(`不支持的文件格式: ${file.name}`)
+      continue
+    }
+    if (file.size > GITHUB_WEB_UPLOAD_LIMIT) {
+      message.warning(`${file.name} 超过 25MB，已跳过；请使用 git 命令行提交后再到字幕列表刷新排序`)
       continue
     }
     const parsed = parseOriginalName(file.name, subtitleLanguageAliases.value)
