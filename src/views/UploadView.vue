@@ -175,28 +175,26 @@
               </template>
               <n-list bordered>
                 <n-list-item v-for="item in group.items" :key="item.index">
-                  <n-thing class="template-list-thing">
-                    <template #header>
-                      <div class="template-list-header">
-                        <span>{{ item.template.name || item.template.titleEn }}</span>
-                        <n-space size="small" :wrap="false">
-                          <n-button size="tiny" type="primary" @click="loadTemplate(item.template)">加载</n-button>
-                          <n-button size="tiny" @click="editSavedTemplate(item.template, item.index)">编辑</n-button>
-                          <n-popconfirm @positive-click="deleteTemplate(item.index)">
-                            <template #trigger>
-                              <n-button size="tiny" type="error" :loading="deletingTemplateIndex === item.index" :disabled="deletingTemplateIndex !== null">删除</n-button>
-                            </template>
-                            确认删除模板「{{ item.template.name || item.template.titleEn }}」吗？
-                          </n-popconfirm>
-                        </n-space>
-                      </div>
-                    </template>
+                  <n-thing>
+                    <template #header>{{ item.template.name || item.template.titleEn }}</template>
                     <template #description>
                       <n-text depth="3" style="font-size: 12px;">
                         [{{ item.template.groupTag }}] {{ item.template.titleEn }} / {{ item.template.titleCn }} - S{{ String(item.template.season).padStart(2, '0') }} | {{ item.template.subtitleType === 'bilingual' ? '中日双语' : '单语' }}
                       </n-text>
                     </template>
                   </n-thing>
+                  <template #suffix>
+                    <n-space class="template-list-actions" size="small" :wrap="false">
+                      <n-button size="tiny" type="primary" @click="loadTemplate(item.template)">加载</n-button>
+                      <n-button size="tiny" @click="editSavedTemplate(item.template, item.index)">编辑</n-button>
+                      <n-popconfirm @positive-click="deleteTemplate(item.index)">
+                        <template #trigger>
+                          <n-button size="tiny" type="error" :loading="deletingTemplateIndex === item.index" :disabled="deletingTemplateIndex !== null">删除</n-button>
+                        </template>
+                        确认删除模板「{{ item.template.name || item.template.titleEn }}」吗？
+                      </n-popconfirm>
+                    </n-space>
+                  </template>
                 </n-list-item>
               </n-list>
             </n-collapse-item>
@@ -1375,22 +1373,7 @@ onUnmounted(() => {
   width: 100%;
 }
 
-.template-list-thing {
-  width: 100%;
-}
-
-.template-list-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-}
-
-.template-list-header > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.template-list-actions {
   white-space: nowrap;
 }
 </style>
