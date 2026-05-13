@@ -2,13 +2,16 @@
   <div>
     <n-card title="设置">
       <n-spin :show="loading">
-        <n-form label-placement="left" label-width="180" style="max-width: 600px;">
-          <n-form-item label="允许上传超过 25MB 的字幕">
-            <n-switch
-              v-model:value="allowLargeSubtitleUpload"
-              :loading="savingUploadSettings"
-              @update:value="saveLargeSubtitleUploadSetting"
-            />
+        <n-form label-placement="left" label-width="220" style="max-width: 600px;">
+          <n-form-item>
+            <n-space align="center" :wrap="false">
+              <n-switch
+                v-model:value="allowLargeSubtitleUpload"
+                :loading="savingUploadSettings"
+                @update:value="saveLargeSubtitleUploadSetting"
+              />
+              <span>允许上传超过 25MB 的字幕</span>
+            </n-space>
           </n-form-item>
 
           <n-divider title-placement="left">GitHub</n-divider>
