@@ -333,6 +333,20 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ success: true })
   }
 
+  if (path === 'upload-settings' && request.method === 'GET') {
+    const raw = await env.subKV.get('config:upload_settings')
+    const settings = raw ? JSON.parse(raw) : {}
+    return jsonResponse({ allowLargeSubtitleUpload: !!settings.allowLargeSubtitleUpload })
+  }
+
+  if (path === 'upload-settings' && request.method === 'POST') {
+    const body = await request.json() as { allowLargeSubtitleUpload?: boolean }
+    await env.subKV.put('config:upload_settings', JSON.stringify({
+      allowLargeSubtitleUpload: !!body.allowLargeSubtitleUpload,
+    }))
+    return jsonResponse({ success: true })
+  }
+
   if (path === 'templates' && request.method === 'GET') {
     const raw = await env.subKV.get('templates:list')
     return jsonResponse({ templates: raw ? JSON.parse(raw) : [] })

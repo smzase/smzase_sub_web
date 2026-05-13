@@ -266,7 +266,7 @@ import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../t
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import type { SubtitleLanguageConfig } from '../utils/rename'
 import { uploadFiles, getToken, getContents, downloadUrl, getFileText } from '../utils/github'
-import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, getSubtitleLanguageConfig, saveSubtitleLanguageConfig, listR2Fonts, getR2Domain } from '../utils/api'
+import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, getSubtitleLanguageConfig, saveSubtitleLanguageConfig, getUploadSettings, listR2Fonts, getR2Domain } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
@@ -282,7 +282,6 @@ interface QueueItem {
 }
 
 const CURRENT_TEMPLATE_KEY = 'smzase_current_template'
-const ALLOW_LARGE_SUBTITLE_UPLOAD_KEY = 'smzase_allow_large_subtitle_upload'
 const DEFAULT_SUBTITLE_LANGUAGE_CONFIG: SubtitleLanguageConfig = { hans: 'zh-hans', hant: 'zh-hant' }
 const GITHUB_WEB_UPLOAD_LIMIT = 25 * 1024 * 1024
 
@@ -481,6 +480,15 @@ async function loadSubtitleLanguageConfig() {
       : { ...DEFAULT_SUBTITLE_LANGUAGE_CONFIG }
   } catch {
     subtitleLanguageConfig.value = { ...DEFAULT_SUBTITLE_LANGUAGE_CONFIG }
+  }
+}
+
+async function loadUploadSettings() {
+  try {
+    const result = await getUploadSettings()
+    allowLargeSubtitleUpload.value = !!result.allowLargeSubtitleUpload
+  } catch {
+    allowLargeSubtitleUpload.value = false
   }
 }
 
@@ -1329,9 +1337,8 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 onMounted(async () => {
-  allowLargeSubtitleUpload.value = localStorage.getItem(ALLOW_LARGE_SUBTITLE_UPLOAD_KEY) === '1'
   document.addEventListener('paste', onPaste)
-  await loadSubtitleLanguageConfig()
+  await Promise.all([loadSubtitleLanguageConfig(), loadUploadSettings()])
   await loadSavedTemplates()
   if (getToken()) loadYears()
 })

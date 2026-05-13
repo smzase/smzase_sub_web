@@ -82,6 +82,17 @@ export async function setR2Domain(domain: string): Promise<any> {
   })
 }
 
+export async function getUploadSettings(): Promise<{ allowLargeSubtitleUpload: boolean }> {
+  return apiFetch('upload-settings')
+}
+
+export async function saveUploadSettings(settings: { allowLargeSubtitleUpload: boolean }): Promise<any> {
+  return apiFetch('upload-settings', {
+    method: 'POST',
+    body: JSON.stringify(settings),
+  })
+}
+
 export async function getTemplates(): Promise<{ templates: any[] }> {
   return apiFetch('templates')
 }

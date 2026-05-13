@@ -2,7 +2,15 @@
   <div>
     <n-card title="设置">
       <n-spin :show="loading">
-        <n-form label-placement="left" label-width="160" style="max-width: 600px;">
+        <n-form label-placement="left" label-width="180" style="max-width: 600px;">
+          <n-form-item label="允许上传超过 25MB 的字幕">
+            <n-switch
+              v-model:value="allowLargeSubtitleUpload"
+              :loading="savingUploadSettings"
+              @update:value="saveLargeSubtitleUploadSetting"
+            />
+          </n-form-item>
+
           <n-divider title-placement="left">GitHub</n-divider>
           <n-form-item label="Personal Access Token">
             <n-input
@@ -14,21 +22,6 @@
           </n-form-item>
           <n-form-item>
             <n-button type="primary" @click="saveGHToken" :loading="saving">保存 Token</n-button>
-          </n-form-item>
-
-          <n-divider title-placement="left">上传</n-divider>
-          <n-form-item label="大字幕上传测试">
-            <n-space vertical size="small">
-              <n-checkbox v-model:checked="allowLargeSubtitleUpload">
-                允许上传超过 25MB 的字幕
-              </n-checkbox>
-              <n-text depth="3" style="font-size: 12px;">
-                默认关闭。开启后不再在前端跳过超过 25MB 的 ASS 字幕，用于测试 Personal Access Token 通过 GitHub API 上传时是否仍受限制。
-              </n-text>
-            </n-space>
-          </n-form-item>
-          <n-form-item>
-            <n-button type="primary" @click="saveUploadSettings" :loading="saving">保存上传设置</n-button>
           </n-form-item>
 
           <n-divider title-placement="left">R2 对象存储</n-divider>
@@ -55,24 +48,23 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
-import { getGHToken, setGHToken, getR2Domain, setR2Domain } from '../utils/api'
+import { getGHToken, setGHToken, getR2Domain, setR2Domain, getUploadSettings, saveUploadSettings } from '../utils/api'
 import { setToken } from '../utils/github'
-
-const ALLOW_LARGE_SUBTITLE_UPLOAD_KEY = 'smzase_allow_large_subtitle_upload'
 
 const message = useMessage()
 const loading = ref(true)
 const saving = ref(false)
+const savingUploadSettings = ref(false)
 const ghToken = ref('')
 const r2Domain = ref('')
 const allowLargeSubtitleUpload = ref(false)
 
 onMounted(async () => {
-  allowLargeSubtitleUpload.value = localStorage.getItem(ALLOW_LARGE_SUBTITLE_UPLOAD_KEY) === '1'
   try {
-    const [tokenResult, domainResult] = await Promise.all([getGHToken(), getR2Domain()])
+    const [tokenResult, domainResult, uploadSettings] = await Promise.all([getGHToken(), getR2Domain(), getUploadSettings()])
     ghToken.value = tokenResult.token || ''
     r2Domain.value = domainResult.domain || ''
+    allowLargeSubtitleUpload.value = !!uploadSettings.allowLargeSubtitleUpload
     if (tokenResult.token) setToken(tokenResult.token)
   } catch (err: any) {
     message.error(`加载设置失败: ${err.message}`)
@@ -94,9 +86,17 @@ async function saveGHToken() {
   }
 }
 
-function saveUploadSettings() {
-  localStorage.setItem(ALLOW_LARGE_SUBTITLE_UPLOAD_KEY, allowLargeSubtitleUpload.value ? '1' : '0')
-  message.success('上传设置已保存')
+async function saveLargeSubtitleUploadSetting(value: boolean) {
+  savingUploadSettings.value = true
+  try {
+    await saveUploadSettings({ allowLargeSubtitleUpload: value })
+    message.success('设置已保存')
+  } catch (err: any) {
+    allowLargeSubtitleUpload.value = !value
+    message.error(`保存失败: ${err.message}`)
+  } finally {
+    savingUploadSettings.value = false
+  }
 }
 
 async function saveR2Domain() {
