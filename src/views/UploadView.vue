@@ -282,6 +282,7 @@ interface QueueItem {
 }
 
 const CURRENT_TEMPLATE_KEY = 'smzase_current_template'
+const ALLOW_LARGE_SUBTITLE_UPLOAD_KEY = 'smzase_allow_large_subtitle_upload'
 const DEFAULT_SUBTITLE_LANGUAGE_CONFIG: SubtitleLanguageConfig = { hans: 'zh-hans', hant: 'zh-hant' }
 const GITHUB_WEB_UPLOAD_LIMIT = 25 * 1024 * 1024
 
@@ -292,6 +293,7 @@ const isDragging = ref(false)
 const isFontDragging = ref(false)
 const fontPackageMode = ref(false)
 const fontPackageMultipartMode = ref(false)
+const allowLargeSubtitleUpload = ref(false)
 const subtitleFileInput = ref<HTMLInputElement | null>(null)
 const fontFileInput = ref<HTMLInputElement | null>(null)
 
@@ -796,9 +798,12 @@ function processSubtitleFiles(files: File[]) {
       message.error(`不支持的文件格式: ${file.name}`)
       continue
     }
-    if (file.size > GITHUB_WEB_UPLOAD_LIMIT) {
-      message.warning(`${file.name} 超过 25MB，已跳过；请使用 git 命令行提交后再到字幕列表刷新排序`)
+    if (file.size > GITHUB_WEB_UPLOAD_LIMIT && !allowLargeSubtitleUpload.value) {
+      message.warning(`${file.name} 超过 25MB，已跳过；如需测试 Personal Access Token 上传限制，可到设置中开启“允许上传超过 25MB 的字幕”`)
       continue
+    }
+    if (file.size > GITHUB_WEB_UPLOAD_LIMIT && allowLargeSubtitleUpload.value) {
+      message.warning(`${file.name} 超过 25MB，将尝试通过 GitHub API 上传；如果 GitHub 限制该大小，提交时会报错`)
     }
     const parsed = parseOriginalName(file.name, subtitleLanguageAliases.value)
     if (!parsed) {
@@ -1324,6 +1329,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 onMounted(async () => {
+  allowLargeSubtitleUpload.value = localStorage.getItem(ALLOW_LARGE_SUBTITLE_UPLOAD_KEY) === '1'
   document.addEventListener('paste', onPaste)
   await loadSubtitleLanguageConfig()
   await loadSavedTemplates()

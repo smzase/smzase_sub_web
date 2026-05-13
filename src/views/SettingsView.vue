@@ -16,6 +16,21 @@
             <n-button type="primary" @click="saveGHToken" :loading="saving">保存 Token</n-button>
           </n-form-item>
 
+          <n-divider title-placement="left">上传</n-divider>
+          <n-form-item label="大字幕上传测试">
+            <n-space vertical size="small">
+              <n-checkbox v-model:checked="allowLargeSubtitleUpload">
+                允许上传超过 25MB 的字幕
+              </n-checkbox>
+              <n-text depth="3" style="font-size: 12px;">
+                默认关闭。开启后不再在前端跳过超过 25MB 的 ASS 字幕，用于测试 Personal Access Token 通过 GitHub API 上传时是否仍受限制。
+              </n-text>
+            </n-space>
+          </n-form-item>
+          <n-form-item>
+            <n-button type="primary" @click="saveUploadSettings" :loading="saving">保存上传设置</n-button>
+          </n-form-item>
+
           <n-divider title-placement="left">R2 对象存储</n-divider>
           <n-form-item label="字体下载域名">
             <n-input
@@ -43,13 +58,17 @@ import { useMessage } from 'naive-ui'
 import { getGHToken, setGHToken, getR2Domain, setR2Domain } from '../utils/api'
 import { setToken } from '../utils/github'
 
+const ALLOW_LARGE_SUBTITLE_UPLOAD_KEY = 'smzase_allow_large_subtitle_upload'
+
 const message = useMessage()
 const loading = ref(true)
 const saving = ref(false)
 const ghToken = ref('')
 const r2Domain = ref('')
+const allowLargeSubtitleUpload = ref(false)
 
 onMounted(async () => {
+  allowLargeSubtitleUpload.value = localStorage.getItem(ALLOW_LARGE_SUBTITLE_UPLOAD_KEY) === '1'
   try {
     const [tokenResult, domainResult] = await Promise.all([getGHToken(), getR2Domain()])
     ghToken.value = tokenResult.token || ''
@@ -73,6 +92,11 @@ async function saveGHToken() {
   } finally {
     saving.value = false
   }
+}
+
+function saveUploadSettings() {
+  localStorage.setItem(ALLOW_LARGE_SUBTITLE_UPLOAD_KEY, allowLargeSubtitleUpload.value ? '1' : '0')
+  message.success('上传设置已保存')
 }
 
 async function saveR2Domain() {
