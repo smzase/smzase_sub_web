@@ -372,6 +372,26 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ success: true })
   }
 
+  if (path === 'readme-cache' && request.method === 'GET') {
+    const targetPath = new URL(request.url).searchParams.get('path') || ''
+    if (!targetPath.endsWith('README.md')) return jsonResponse({ error: 'Invalid README path' }, 400)
+    const key = `readme-cache/${targetPath}`
+    const object = await env.R2.get(key)
+    if (!object) return jsonResponse({ content: '' })
+    return jsonResponse({ content: await object.text(), key })
+  }
+
+  if (path === 'readme-cache' && request.method === 'POST') {
+    const body = await request.json() as { path: string; content: string }
+    if (!body.path?.endsWith('README.md')) return jsonResponse({ error: 'Invalid README path' }, 400)
+    const key = `readme-cache/${body.path}`
+    await env.R2.put(key, body.content || '', {
+      httpMetadata: { contentType: 'text/markdown; charset=utf-8' },
+      customMetadata: { originalPath: body.path },
+    })
+    return jsonResponse({ success: true, key })
+  }
+
   if (path === 'fonts/upload' && request.method === 'POST') {
     const contentType = request.headers.get('Content-Type') || ''
     const fileName = decodeURIComponent(request.headers.get('X-File-Name') || 'unknown')

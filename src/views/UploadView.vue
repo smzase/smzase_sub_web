@@ -260,7 +260,7 @@ import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import type { SubtitleLanguageConfig } from '../utils/rename'
-import { uploadFiles, getToken, getContents, rawUrl, downloadUrl, getFileText } from '../utils/github'
+import { uploadFiles, getToken, getContents, downloadUrl, getFileText } from '../utils/github'
 import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, getSubtitleLanguageConfig, saveSubtitleLanguageConfig, listR2Fonts, getR2Domain } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
 
@@ -658,10 +658,8 @@ async function onAnimeSelect(animeName: string) {
     animeLoading.value = true
     try {
       const basePath = `Anime subtitles/${selectedYear.value}/${animeName}`
-      const readmeUrl = rawUrl(`${basePath}/README.md`)
-      const res = await fetch(readmeUrl)
-      if (res.ok) {
-        const text = await res.text()
+      const text = await getFileText(`${basePath}/README.md`)
+      if (text) {
         const parsed = parseAnimeReadme(text)
         template.value = {
           ...template.value,

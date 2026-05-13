@@ -1,8 +1,10 @@
 const REPO_OWNER = 'smzase'
 const REPO_NAME = 'smzase_sub'
 const API_BASE = 'https://api.github.com'
+const LOCAL_API_BASE = '/api'
 
 let _token = ''
+const fileTextCache = new Map<string, string>()
 
 export function setToken(token: string) {
   _token = token
@@ -35,10 +37,51 @@ export function downloadUrl(path: string, branch = 'main'): string {
 }
 
 export async function getFileText(path: string): Promise<string> {
+  if (fileTextCache.has(path)) return fileTextCache.get(path) || ''
+  if (path.endsWith('README.md')) {
+    try {
+      const res = await fetch(`${LOCAL_API_BASE}/readme-cache?path=${encodeURIComponent(path)}`, {
+        headers: sessionAuthHeaders(),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.content) {
+          fileTextCache.set(path, data.content)
+          return data.content
+        }
+      }
+    } catch {
+      // noop
+    }
+  }
   const content = await getContents(path)
   if (!content || Array.isArray(content) || !content.content) return ''
   const normalized = content.content.replace(/\n/g, '')
-  return decodeURIComponent(escape(atob(normalized)))
+  const text = decodeURIComponent(escape(atob(normalized)))
+  fileTextCache.set(path, text)
+  return text
+}
+
+export function setFileTextCache(path: string, content: string) {
+  fileTextCache.set(path, content)
+}
+
+function sessionAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('smzase_session') || ''
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+async function saveReadmeCache(path: string, content: string) {
+  if (!path.endsWith('README.md')) return
+  try {
+    await fetch(`${LOCAL_API_BASE}/readme-cache`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...sessionAuthHeaders() },
+      body: JSON.stringify({ path, content }),
+    })
+  } catch {
+    // noop
+  }
 }
 
 export function readmeUrl(path: string, branch = 'main'): string {
@@ -161,6 +204,20 @@ export async function uploadFiles(
   const newTreeSha = await createTree(baseTreeSha, treeItems)
   const newCommitSha = await createCommit(message, newTreeSha, refSha)
   await updateRef(newCommitSha, branch)
+  for (const file of files) {
+    if (file.encoding === 'utf-8') {
+      setFileTextCache(file.path, file.content)
+      await saveReadmeCache(file.path, file.content)
+    } else {
+      try {
+        const text = decodeURIComponent(escape(atob(file.content)))
+        setFileTextCache(file.path, text)
+        await saveReadmeCache(file.path, text)
+      } catch {
+        // noop
+      }
+    }
+  }
   for (const file of files) {
     onProgress?.({ path: file.path, percent: 100 })
   }

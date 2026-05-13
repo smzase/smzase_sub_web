@@ -115,6 +115,17 @@ export async function saveEpisodeTitles(episodeTitles: Record<string, Record<str
   })
 }
 
+export async function getReadmeCache(path: string): Promise<{ content: string; key?: string }> {
+  return apiFetch(`readme-cache?path=${encodeURIComponent(path)}`)
+}
+
+export async function saveReadmeCache(path: string, content: string): Promise<any> {
+  return apiFetch('readme-cache', {
+    method: 'POST',
+    body: JSON.stringify({ path, content }),
+  })
+}
+
 interface UploadProgressOptions {
   onProgress?: (percent: number) => void
 }
