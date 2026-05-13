@@ -89,7 +89,7 @@ export function readmeUrl(path: string, branch = 'main'): string {
 }
 
 async function githubFetch(url: string, options?: RequestInit): Promise<Response> {
-  const res = await fetch(url, { ...options, headers: { ...headers(), ...(options?.headers || {}) } })
+  const res = await fetch(url, { cache: 'no-store', ...options, headers: { ...headers(), ...(options?.headers || {}) } })
   if (!res.ok) {
     let detail = ''
     try {
@@ -265,12 +265,13 @@ export async function moveFiles(
   moves: Array<{ from: string; to: string; sha?: string }>,
   message: string,
   branch = 'main'
-): Promise<void> {
-  if (moves.length === 0) return
+): Promise<string[]> {
+  if (moves.length === 0) return []
   const refSha = await getRef(branch)
   const commit = await getCommit(refSha)
   const baseTreeSha = commit.tree.sha
   const treeItems: Array<{ path: string; mode: string; type: string; sha: string | null }> = []
+  const movedPaths: string[] = []
   for (const move of moves) {
     let sha = move.sha
     if (!sha) {
@@ -282,9 +283,11 @@ export async function moveFiles(
     const fileSha = sha
     treeItems.push({ path: move.from, mode: '100644', type: 'blob', sha: null })
     treeItems.push({ path: move.to, mode: '100644', type: 'blob', sha: fileSha })
+    movedPaths.push(move.to)
   }
   if (treeItems.length === 0) throw new Error('没有找到可重命名的文件')
   const newTreeSha = await createTree(baseTreeSha, treeItems)
   const newCommitSha = await createCommit(message, newTreeSha, refSha)
   await updateRef(newCommitSha, branch)
+  return movedPaths
 }

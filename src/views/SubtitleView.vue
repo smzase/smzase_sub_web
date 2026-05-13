@@ -213,6 +213,20 @@ function buildRenamedSubtitleName(folder: string, episode: number, lang: string)
   return `[smzase] ${folder} - S01E${String(episode).padStart(2, '0')}.${lang}.ass`
 }
 
+async function waitForRenamedFiles(basePath: string, expectedNames: string[]) {
+  if (expectedNames.length === 0) return
+  for (let i = 0; i < 5; i++) {
+    const contents = await getContents(basePath)
+    if (contents && Array.isArray(contents)) {
+      const names = new Set(contents.map((item: any) => item.name))
+      const missing = expectedNames.filter(name => !names.has(name))
+      if (missing.length === 0) return
+    }
+    await new Promise(resolve => setTimeout(resolve, 800))
+  }
+  throw new Error('GitHub 已提交重命名，但目录列表暂未刷新，请稍后重新打开或再点一次刷新排序')
+}
+
 const message = useMessage()
 const loading = ref(false)
 const detailLoading = ref(false)
@@ -669,7 +683,12 @@ async function refreshAnimeSort(year: string, folder: string) {
         existingNames.add(newName)
       }
       if (moves.length > 0) {
-        await moveFiles(moves, `chore: 重命名 ${folder} 原始字幕文件`)
+        const movedPaths = await moveFiles(moves, `chore: 重命名 ${folder} 原始字幕文件`)
+        const expectedNames = movedPaths.map(path => path.split('/').pop()).filter((name): name is string => !!name)
+        await waitForRenamedFiles(basePath, expectedNames)
+        message.success(`已重命名 ${expectedNames.length} 个原始字幕文件`)
+      } else {
+        message.info('没有找到需要重命名的原始字幕文件')
       }
     }
     await refreshAnimeReadme(year, folder)
