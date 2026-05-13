@@ -35,6 +35,7 @@
                       <n-tag size="small" type="info">{{ anime.subtitleCount }} 个字幕</n-tag>
                       <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
                       <n-button size="tiny" :loading="sortLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeSort(year, anime.folder)">刷新排序</n-button>
+                      <n-button size="tiny" @click.stop="openTemplateLinkModal(year, anime.folder)">关联模板</n-button>
                       <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑集数标题</n-button>
                     </n-space>
                   </template>
@@ -131,6 +132,31 @@
       </template>
     </n-modal>
 
+    <n-modal v-model:show="showTemplateLinkModal" preset="card" title="关联模板" style="width: 520px;">
+      <n-form label-placement="left" label-width="80">
+        <n-form-item label="文件夹">
+          <n-input :value="templateLinkTarget ? `${templateLinkTarget.year}/${templateLinkTarget.folder}` : ''" readonly />
+        </n-form-item>
+        <n-form-item label="模板">
+          <n-select
+            v-model:value="selectedTemplateLink"
+            :options="templateLinkOptions"
+            placeholder="选择模板"
+            filterable
+            clearable
+            :loading="templateLinkLoading"
+          />
+        </n-form-item>
+      </n-form>
+      <template #action>
+        <n-space>
+          <n-button @click="showTemplateLinkModal = false">取消</n-button>
+          <n-button :disabled="!selectedTemplateLink" :loading="savingTemplateLink" @click="clearTemplateLink">取消关联</n-button>
+          <n-button type="primary" :disabled="!selectedTemplateLink" :loading="savingTemplateLink" @click="saveTemplateLink">保存</n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
     <n-modal v-model:show="showEpisodeTitleModal" preset="card" title="编辑集数标题" style="width: 520px;">
       <n-form label-placement="left" label-width="80">
         <n-form-item v-for="ep in episodeTitleList" :key="ep.episode" :label="`EP${String(ep.episode).padStart(2, '0')}`">
@@ -151,11 +177,11 @@
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
 import { NButton, NSpace, NPopconfirm, NTag, useMessage } from 'naive-ui'
-import type { DataTableColumns, UploadCustomRequestOptions } from 'naive-ui'
+import type { DataTableColumns, UploadCustomRequestOptions, SelectOption } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
 import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, getFileText, moveFiles } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
-import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles } from '../utils/api'
+import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles, getAnimeTemplateLinks, saveAnimeTemplateLinks } from '../utils/api'
 
 interface AnimeListItem {
   folder: string
@@ -164,17 +190,37 @@ interface AnimeListItem {
 }
 
 interface StoredTemplate {
+  name?: string
+  groupTag?: string
   titleEn?: string
   titleCn?: string
   year?: string
+  coverUrl?: string
+  languages?: string[]
+  subtitleType?: string
 }
 
-function getTemplateNames(templates: StoredTemplate[], year: string): Record<string, string> {
+function getTemplateKey(template: StoredTemplate): string {
+  return `${template.year || ''}/${template.titleEn || template.name || ''}`
+}
+
+function getAnimeLinkKey(year: string, folder: string): string {
+  return `${year}/${folder}`
+}
+
+function getTemplateNames(templates: StoredTemplate[], year: string, links: Record<string, string> = {}): Record<string, string> {
   const names: Record<string, string> = {}
+  const templateMap = new Map(templates.map(t => [getTemplateKey(t), t]))
   for (const t of templates) {
     if (t.year === year && t.titleEn && t.titleCn) {
       names[t.titleEn] = t.titleCn
     }
+  }
+  for (const [animeKey, templateKey] of Object.entries(links)) {
+    const [animeYear, folder] = animeKey.split('/')
+    if (animeYear !== year || !folder) continue
+    const linkedTemplate = templateMap.get(templateKey)
+    if (linkedTemplate?.titleCn) names[folder] = linkedTemplate.titleCn
   }
   return names
 }
@@ -211,6 +257,91 @@ function parseSubtitleFileInfo(name: string): { episode: number; lang: string } 
 
 function buildRenamedSubtitleName(folder: string, episode: number, lang: string): string {
   return `[smzase] ${folder} - S01E${String(episode).padStart(2, '0')}.${lang}.ass`
+}
+
+async function ensureTemplateData() {
+  if (savedTemplates.value.length === 0) {
+    const result = await apiGetTemplates().catch(() => ({ templates: [] }))
+    savedTemplates.value = result.templates || []
+  }
+  const linkResult = await getAnimeTemplateLinks().catch(() => ({ links: {} as Record<string, string> }))
+  animeTemplateLinks.value = linkResult.links || {}
+}
+
+function getLinkedTemplate(year: string, folder: string): StoredTemplate | undefined {
+  const templateKey = animeTemplateLinks.value[getAnimeLinkKey(year, folder)]
+  if (!templateKey) return undefined
+  return savedTemplates.value.find(t => getTemplateKey(t) === templateKey)
+}
+
+function mergeUniqueLanguages(primary: string[], fallback: string[]): string[] {
+  const langs = new Set<string>()
+  for (const lang of primary) if (lang) langs.add(lang)
+  for (const lang of fallback) if (lang) langs.add(lang)
+  return Array.from(langs)
+}
+
+async function openTemplateLinkModal(year: string, folder: string) {
+  templateLinkTarget.value = { year, folder }
+  selectedTemplateLink.value = null
+  showTemplateLinkModal.value = true
+  templateLinkLoading.value = true
+  try {
+    await ensureTemplateData()
+    templateLinkOptions.value = savedTemplates.value
+      .filter(t => t.titleEn || t.name)
+      .map(t => ({
+        label: `${t.year || '未分类'} / ${t.name || t.titleEn}${t.titleCn ? ` / ${t.titleCn}` : ''}`,
+        value: getTemplateKey(t),
+      }))
+    selectedTemplateLink.value = animeTemplateLinks.value[getAnimeLinkKey(year, folder)] || null
+  } catch (err: any) {
+    message.error(`加载模板失败: ${err.message}`)
+  } finally {
+    templateLinkLoading.value = false
+  }
+}
+
+async function saveTemplateLink() {
+  if (!templateLinkTarget.value || !selectedTemplateLink.value) return
+  savingTemplateLink.value = true
+  try {
+    const key = getAnimeLinkKey(templateLinkTarget.value.year, templateLinkTarget.value.folder)
+    animeTemplateLinks.value = { ...animeTemplateLinks.value, [key]: selectedTemplateLink.value }
+    await saveAnimeTemplateLinks(animeTemplateLinks.value)
+    const linkedTemplate = getLinkedTemplate(templateLinkTarget.value.year, templateLinkTarget.value.folder)
+    if (animeDetail.value && expandedAnime.value === key && linkedTemplate) {
+      animeDetail.value.titleCn = animeDetail.value.titleCn || linkedTemplate.titleCn || ''
+      animeDetail.value.coverUrl = animeDetail.value.coverUrl || linkedTemplate.coverUrl || ''
+      animeDetail.value.languages = mergeUniqueLanguages(animeDetail.value.languages, linkedTemplate.languages || [])
+      animeDetail.value.subtitleType = animeDetail.value.subtitleType || linkedTemplate.subtitleType || 'bilingual'
+    }
+    showTemplateLinkModal.value = false
+    message.success('模板关联已保存')
+  } catch (err: any) {
+    message.error(`保存失败: ${err.message}`)
+  } finally {
+    savingTemplateLink.value = false
+  }
+}
+
+async function clearTemplateLink() {
+  if (!templateLinkTarget.value) return
+  savingTemplateLink.value = true
+  try {
+    const key = getAnimeLinkKey(templateLinkTarget.value.year, templateLinkTarget.value.folder)
+    const links = { ...animeTemplateLinks.value }
+    delete links[key]
+    animeTemplateLinks.value = links
+    await saveAnimeTemplateLinks(links)
+    selectedTemplateLink.value = null
+    showTemplateLinkModal.value = false
+    message.success('模板关联已取消')
+  } catch (err: any) {
+    message.error(`取消关联失败: ${err.message}`)
+  } finally {
+    savingTemplateLink.value = false
+  }
 }
 
 async function waitForRenamedFiles(basePath: string, expectedNames: string[]) {
@@ -253,6 +384,14 @@ const showEpisodeTitleModal = ref(false)
 const savingEpisodeTitles = ref(false)
 const episodeTitleLoading = ref('')
 const episodeTitleList = ref<Array<{ episode: number; title: string }>>([])
+const showTemplateLinkModal = ref(false)
+const templateLinkLoading = ref(false)
+const savingTemplateLink = ref(false)
+const templateLinkTarget = ref<{ year: string; folder: string } | null>(null)
+const selectedTemplateLink = ref<string | null>(null)
+const templateLinkOptions = ref<SelectOption[]>([])
+const savedTemplates = ref<StoredTemplate[]>([])
+const animeTemplateLinks = ref<Record<string, string>>({})
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
   {
@@ -477,7 +616,8 @@ async function collectYearAnimeList(year: string): Promise<Array<{ titleEn: stri
   const yearContents = await getContents(`Anime subtitles/${year}`)
   if (!yearContents || !Array.isArray(yearContents)) return []
   const animeDirs = yearContents.filter((c: any) => c.type === 'dir')
-  const templateNames = await apiGetTemplates().then(res => getTemplateNames(res.templates || [], year)).catch(() => ({} as Record<string, string>))
+  await ensureTemplateData()
+  const templateNames = getTemplateNames(savedTemplates.value, year, animeTemplateLinks.value)
   const existingYearNames: Record<string, string> = {}
   const yearReadmeFile = yearContents.find((c: any) => c.type === 'file' && c.name === 'README.md')
   if (yearReadmeFile) {
@@ -486,7 +626,7 @@ async function collectYearAnimeList(year: string): Promise<Array<{ titleEn: stri
   }
   const animeList: Array<{ titleEn: string; titleCn: string }> = []
   for (const dir of animeDirs) {
-    let titleCn = templateNames[dir.name] || existingYearNames[dir.name] || ''
+    let titleCn = existingYearNames[dir.name] || templateNames[dir.name] || ''
     const readmeFile = await getContents(`Anime subtitles/${year}/${dir.name}/README.md`)
     if (readmeFile && readmeFile.name === 'README.md') {
       const rUrl = readmeUrl(`Anime subtitles/${year}/${dir.name}/README.md`)
@@ -556,6 +696,14 @@ async function refreshYearReadme(year: string) {
 async function updateReadme() {
   if (!animeDetail.value || !expandedAnime.value) return
   try {
+    await ensureTemplateData()
+    const linkedTemplate = getLinkedTemplate(animeDetail.value.year, animeDetail.value.folder)
+    if (linkedTemplate) {
+      animeDetail.value.titleCn = animeDetail.value.titleCn || linkedTemplate.titleCn || ''
+      animeDetail.value.coverUrl = animeDetail.value.coverUrl || linkedTemplate.coverUrl || ''
+      animeDetail.value.languages = mergeUniqueLanguages(animeDetail.value.languages, linkedTemplate.languages || [])
+      animeDetail.value.subtitleType = animeDetail.value.subtitleType || linkedTemplate.subtitleType || 'bilingual'
+    }
     const readmePath = `Anime subtitles/${animeDetail.value.year}/${animeDetail.value.titleEn}/README.md`
     const readmeContent = generateAnimeReadme(animeDetail.value)
     await uploadFiles(
@@ -611,6 +759,15 @@ async function refreshAnimeReadme(year: string, folder: string) {
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
       }
+    }
+
+    await ensureTemplateData()
+    const linkedTemplate = getLinkedTemplate(year, folder)
+    if (linkedTemplate) {
+      titleCn = titleCn || linkedTemplate.titleCn || ''
+      coverUrl = coverUrl || linkedTemplate.coverUrl || ''
+      languages = mergeUniqueLanguages(languages, linkedTemplate.languages || [])
+      subtitleType = subtitleType || linkedTemplate.subtitleType || 'bilingual'
     }
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
@@ -862,6 +1019,15 @@ async function toggleAnimeDetail(year: string, folder: string) {
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
       }
+    }
+
+    await ensureTemplateData()
+    const linkedTemplate = getLinkedTemplate(year, folder)
+    if (linkedTemplate) {
+      titleCn = titleCn || linkedTemplate.titleCn || ''
+      coverUrl = coverUrl || linkedTemplate.coverUrl || ''
+      languages = mergeUniqueLanguages(languages, linkedTemplate.languages || [])
+      subtitleType = subtitleType || linkedTemplate.subtitleType || 'bilingual'
     }
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))

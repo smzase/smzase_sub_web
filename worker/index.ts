@@ -423,6 +423,17 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ success: true })
   }
 
+  if (path === 'anime-template-links' && request.method === 'GET') {
+    const raw = await env.subKV.get('templates:anime_links')
+    return jsonResponse({ links: raw ? JSON.parse(raw) : {} })
+  }
+
+  if (path === 'anime-template-links' && request.method === 'POST') {
+    const body = await request.json() as { links: Record<string, string> }
+    await env.subKV.put('templates:anime_links', JSON.stringify(body.links || {}))
+    return jsonResponse({ success: true })
+  }
+
   if (path === 'subtitle-language-config' && request.method === 'GET') {
     const raw = await env.subKV.get('subtitleLanguage:config')
     return jsonResponse({ config: raw ? JSON.parse(raw) : null })

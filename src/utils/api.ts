@@ -126,6 +126,17 @@ export async function saveTemplates(templates: any[]): Promise<any> {
   })
 }
 
+export async function getAnimeTemplateLinks(): Promise<{ links: Record<string, string> }> {
+  return apiFetch('anime-template-links')
+}
+
+export async function saveAnimeTemplateLinks(links: Record<string, string>): Promise<any> {
+  return apiFetch('anime-template-links', {
+    method: 'POST',
+    body: JSON.stringify({ links }),
+  })
+}
+
 export async function getSubtitleLanguageConfig(): Promise<{ config: { hans: string; hant: string } | null }> {
   return apiFetch('subtitle-language-config')
 }
