@@ -198,6 +198,17 @@ function parseRawSubtitleName(name: string): { episode: number; lang: string } |
   return { episode: parseInt(match[1], 10), lang: match[2].toLowerCase() }
 }
 
+function parseSubtitleFileInfo(name: string): { episode: number; lang: string } {
+  const raw = parseRawSubtitleName(name)
+  if (raw) return raw
+  const epMatch = name.match(/S\d+E(\d+)/i) || name.match(/(?:^|\D)E(\d+)/i)
+  const langMatch = name.match(/\.(zh-hans|zh-hant)\./i)
+  return {
+    episode: epMatch ? parseInt(epMatch[1], 10) : 0,
+    lang: langMatch ? langMatch[1].toLowerCase() : '',
+  }
+}
+
 function buildRenamedSubtitleName(folder: string, episode: number, lang: string): string {
   return `[smzase] ${folder} - S01E${String(episode).padStart(2, '0')}.${lang}.ass`
 }
@@ -590,14 +601,13 @@ async function refreshAnimeReadme(year: string, folder: string) {
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
     const subtitles: SubtitleFile[] = sortSubtitles(assFiles.map((f: any) => {
-      const epMatch = f.name.match(/E(\d+)/)
-      const langMatch = f.name.match(/\.(zh-hans|zh-hant)\./)
+      const parsed = parseSubtitleFileInfo(f.name)
       return {
         name: f.name,
         path: `${basePath}/${f.name}`,
-        episode: epMatch ? parseInt(epMatch[1], 10) : 0,
+        episode: parsed.episode,
         season: 1,
-        lang: langMatch ? langMatch[1] : '',
+        lang: parsed.lang,
         downloadUrl: downloadUrl(`${basePath}/${f.name}`),
       }
     }))
@@ -648,14 +658,14 @@ async function refreshAnimeSort(year: string, folder: string) {
     const contents = await getContents(basePath)
     if (contents && Array.isArray(contents)) {
       const existingNames = new Set(contents.map((item: any) => item.name))
-      const moves: Array<{ from: string; to: string }> = []
+      const moves: Array<{ from: string; to: string; sha?: string }> = []
       for (const item of contents) {
         if (item.type !== 'file') continue
         const parsed = parseRawSubtitleName(item.name)
         if (!parsed) continue
         const newName = buildRenamedSubtitleName(folder, parsed.episode, parsed.lang)
         if (newName === item.name || existingNames.has(newName)) continue
-        moves.push({ from: `${basePath}/${item.name}`, to: `${basePath}/${newName}` })
+        moves.push({ from: `${basePath}/${item.name}`, to: `${basePath}/${newName}`, sha: item.sha })
         existingNames.add(newName)
       }
       if (moves.length > 0) {
@@ -837,14 +847,13 @@ async function toggleAnimeDetail(year: string, folder: string) {
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
     const subtitles: SubtitleFile[] = sortSubtitles(assFiles.map((f: any) => {
-      const epMatch = f.name.match(/E(\d+)/)
-      const langMatch = f.name.match(/\.(zh-hans|zh-hant)\./)
+      const parsed = parseSubtitleFileInfo(f.name)
       return {
         name: f.name,
         path: `${basePath}/${f.name}`,
-        episode: epMatch ? parseInt(epMatch[1], 10) : 0,
+        episode: parsed.episode,
         season: 1,
-        lang: langMatch ? langMatch[1] : '',
+        lang: parsed.lang,
         downloadUrl: downloadUrl(`${basePath}/${f.name}`),
       }
     }))

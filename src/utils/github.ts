@@ -262,7 +262,7 @@ export async function deleteFolder(folderPath: string, message: string, branch =
 }
 
 export async function moveFiles(
-  moves: Array<{ from: string; to: string }>,
+  moves: Array<{ from: string; to: string; sha?: string }>,
   message: string,
   branch = 'main'
 ): Promise<void> {
@@ -270,16 +270,20 @@ export async function moveFiles(
   const refSha = await getRef(branch)
   const commit = await getCommit(refSha)
   const baseTreeSha = commit.tree.sha
-  const tree = await getTree(baseTreeSha)
-  const allFiles = tree.tree || []
   const treeItems: Array<{ path: string; mode: string; type: string; sha: string | null }> = []
   for (const move of moves) {
-    const item = allFiles.find((f: any) => f.path === move.from && f.type === 'blob')
-    if (!item) continue
+    let sha = move.sha
+    if (!sha) {
+      const item = await getContents(move.from)
+      if (!item || Array.isArray(item) || item.type !== 'file' || !item.sha) continue
+      sha = item.sha
+    }
+    if (!sha) continue
+    const fileSha = sha
     treeItems.push({ path: move.from, mode: '100644', type: 'blob', sha: null })
-    treeItems.push({ path: move.to, mode: '100644', type: 'blob', sha: item.sha })
+    treeItems.push({ path: move.to, mode: '100644', type: 'blob', sha: fileSha })
   }
-  if (treeItems.length === 0) return
+  if (treeItems.length === 0) throw new Error('没有找到可重命名的文件')
   const newTreeSha = await createTree(baseTreeSha, treeItems)
   const newCommitSha = await createCommit(message, newTreeSha, refSha)
   await updateRef(newCommitSha, branch)
