@@ -32,7 +32,7 @@ export function parseYearReadme(content: string): Record<string, string> {
   const rows = content.split('\n').filter(line => line.trim().startsWith('|'))
   for (const row of rows) {
     if (row.includes('---') || row.includes('标题')) continue
-    const cols = row.split('|').map(c => c.trim()).filter(c => c)
+    const cols = splitMarkdownRow(row)
     if (cols.length < 2) continue
     const titleMatch = cols[0].match(/\[(.+?)\]\(.+?\)/)
     const titleEn = titleMatch ? titleMatch[1] : cols[0]
@@ -80,13 +80,18 @@ function generateLanguageLines(anime: AnimeInfo): string {
   return md ? `${md}\n` : ''
 }
 
+function splitMarkdownRow(row: string): string[] {
+  const cells = row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|')
+  return cells.map(cell => cell.trim())
+}
+
 function parseStaffTable(section: string): StaffItem[] {
   const rows = section.trim().split('\n').filter(row => row.trim().startsWith('|'))
   const items: StaffItem[] = []
   for (const row of rows) {
     if (row.includes('---') || row.includes('职位')) continue
-    const cols = row.split('|').map(c => c.trim()).filter(c => c)
-    if (cols.length >= 2) items.push({ role: cols[0], people: cols[1] })
+    const cols = splitMarkdownRow(row)
+    if (cols.length >= 2 && (cols[0] || cols[1])) items.push({ role: cols[0], people: cols[1] })
   }
   return items
 }
@@ -130,10 +135,11 @@ function applyFontPackageRow(result: { fontPackages: FontPackageRef[] }, cell: s
 function extractDescriptionAndStaff(section: string): { description: string; staffItems: StaffItem[] } {
   let description = section.trim()
   let staffItems: StaffItem[] = []
-  const staffMatch = description.match(/\n?\| 职位 \| 人员 \|\n\| --- \| --- \|\n[\s\S]*$/)
-  if (staffMatch) {
-    staffItems = parseStaffTable(staffMatch[0])
-    description = description.replace(staffMatch[0], '').trim()
+  const staffStart = description.search(/^\s*\|\s*职位\s*\|\s*人员\s*\|\s*$/m)
+  if (staffStart >= 0) {
+    const staffSection = description.slice(staffStart)
+    staffItems = parseStaffTable(staffSection)
+    description = description.slice(0, staffStart).trim()
   }
   description = description.replace(/^- `.+$/gm, '').trim()
   return { description, staffItems }
@@ -169,8 +175,8 @@ function getSubtitlePackageCell(pkg?: SubtitlePackageRef): string {
 function applySubtitlePackageCell(result: { subtitlePackages: SubtitlePackageRef[] }, lang: string, cell: string) {
   if (!cell || cell === '-') return
   const linkMatch = cell.match(/\[(.+?)\]\((.+?)\)/)
-  if (!linkMatch) return
-  const dlUrl = linkMatch[2]
+  const dlUrl = linkMatch ? linkMatch[2] : cell
+  if (!/^https?:\/\//.test(dlUrl)) return
   const decoded = decodeURIComponent(dlUrl.split('/').pop() || `${lang}.zip`)
   result.subtitlePackages.push({
     name: decoded,
@@ -366,7 +372,7 @@ export function parseAnimeReadme(content: string): {
     const rows = subSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
       if (row.includes('---') || row.includes('集数')) continue
-      const cols = row.split('|').map(c => c.trim()).filter(c => c)
+      const cols = splitMarkdownRow(row)
       if (cols.length < 2) continue
       const epLabel = cols[0]
       if (epLabel === '合集') {
@@ -386,12 +392,12 @@ export function parseAnimeReadme(content: string): {
     }
   }
 
-  const fontPackageSection = content.match(/## 字体整合包\n\n([\s\S]*?)(?=\n##|$)/)
+  const fontPackageSection = content.match(/## (?:字体整合包|字体压缩包)\n\n([\s\S]*?)(?=\n##|$)/)
   if (fontPackageSection) {
     const rows = fontPackageSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
-      if (row.includes('---') || row.includes('压缩包名') || row.includes('字体压缩包')) continue
-      const cols = row.split('|').map(c => c.trim()).filter(c => c)
+      if (row.includes('---') || row.includes('压缩包名') || row.includes('字体压缩包') || row.includes('字体整合包')) continue
+      const cols = splitMarkdownRow(row)
       if (cols.length < 1) continue
       applyFontPackageRow(result, cols[0])
     }
@@ -416,7 +422,7 @@ export function parseAnimeReadme(content: string): {
         continue
       }
       if (row.includes('---')) continue
-      const cols = row.split('|').map(c => c.trim()).filter(c => c)
+      const cols = splitMarkdownRow(row)
       if (tableType === 'package' && cols.length >= 1) {
         applyFontPackageRow(result, cols[0])
       } else if (tableType === 'font' && cols.length >= 2) {
