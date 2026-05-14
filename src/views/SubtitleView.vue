@@ -212,6 +212,7 @@
                 <n-button size="small" class="staff-delete-button" type="error" @click="removeStaffItem(index)">×</n-button>
               </div>
               <n-button size="small" class="staff-add-button" @click="addStaffItem">＋</n-button>
+              <n-text depth="3" class="staff-editor-tip">回车换行后会自动添加 "&lt;br&gt;" 换行，不需要手动添加。</n-text>
             </div>
           </n-form>
         </n-collapse-item>
@@ -1288,5 +1289,9 @@ onMounted(() => {
 
 .staff-add-button {
   align-self: flex-start;
+}
+
+.staff-editor-tip {
+  font-size: 12px;
 }
 </style>
