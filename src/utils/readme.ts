@@ -92,10 +92,11 @@ function parseStaffTable(section: string): StaffItem[] {
 }
 
 function applyLanguageLine(result: { languages: string[]; subtitleType: string }, text: string) {
-  if (text.includes('Zh-hans') || text.includes('zh-hans')) {
+  const normalizedText = text.toLowerCase()
+  if (normalizedText.includes('zh-hans')) {
     if (!result.languages.includes('zh-hans')) result.languages.push('zh-hans')
     if (text.includes('双语') || text.includes('雙語')) result.subtitleType = 'bilingual'
-  } else if (text.includes('Zh-hant') || text.includes('zh-hant')) {
+  } else if (normalizedText.includes('zh-hant')) {
     if (!result.languages.includes('zh-hant')) result.languages.push('zh-hant')
     if (text.includes('双语') || text.includes('雙語')) result.subtitleType = 'bilingual'
   } else if (text === '简体中文' || text === '简中') {
@@ -104,6 +105,46 @@ function applyLanguageLine(result: { languages: string[]; subtitleType: string }
   } else if (text === '繁體中文' || text === '繁体中文' || text === '繁中') {
     if (!result.languages.includes('zh-hant')) result.languages.push('zh-hant')
     result.subtitleType = 'monolingual'
+  }
+}
+
+function applyFontPackageRow(result: { fontPackages: FontPackageRef[] }, cell: string) {
+  const linkMatch = cell.match(/\[(.+?)\]\((.+?)\)/)
+  if (linkMatch) {
+    const fileName = linkMatch[1]
+    const dlUrl = linkMatch[2]
+    result.fontPackages.push({
+      name: fileName,
+      path: dlUrl.includes('/font-packages/') ? `font-packages/${fileName}` : `FontPackages/${fileName}`,
+      downloadUrl: dlUrl,
+    })
+  } else {
+    result.fontPackages.push({
+      name: cell,
+      path: `FontPackages/${cell}`,
+      downloadUrl: '',
+    })
+  }
+}
+
+function applyFontRow(result: { fonts: FontRef[] }, displayName: string, cell: string) {
+  const linkMatch = cell.match(/\[(.+?)\]\((.+?)\)/)
+  if (linkMatch) {
+    const fileName = linkMatch[1]
+    const dlUrl = linkMatch[2]
+    result.fonts.push({
+      name: fileName,
+      path: dlUrl.includes('/fonts/') ? `fonts/${fileName}` : `Fonts/${fileName}`,
+      downloadUrl: dlUrl,
+      displayName,
+    })
+  } else {
+    result.fonts.push({
+      name: cell,
+      path: `Fonts/${cell}`,
+      downloadUrl: '',
+      displayName,
+    })
   }
 }
 
@@ -160,34 +201,36 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `\n`
   }
 
-  if (anime.fontPackages && anime.fontPackages.length > 0) {
-    md += `## 字体整合包\n\n`
-    md += `| 压缩包名 |\n`
-    md += `| --- |\n`
-    for (const pkg of anime.fontPackages) {
-      const dl = pkg.downloadUrl || (pkg.path.startsWith('font-packages/') ? '' : downloadUrl(pkg.path))
-      md += `| ${dl ? `[${pkg.name}](${dl})` : pkg.name} |\n`
-    }
-    md += `\n`
-  }
-
-  if (anime.fonts.length > 0) {
+  if ((anime.fontPackages && anime.fontPackages.length > 0) || anime.fonts.length > 0) {
     md += `## 使用字体\n\n`
-    md += `| 字体名 | 字体下载 |\n`
-    md += `| --- | --- |\n`
-    const sortedFonts = [...anime.fonts].sort((a, b) => {
-      const sa = getFontSortInfo(a)
-      const sb = getFontSortInfo(b)
-      if (sa.group !== sb.group) return sa.group - sb.group
-      return sa.value.localeCompare(sb.value, 'en', { numeric: true, sensitivity: 'base' })
-    })
-    for (const font of sortedFonts) {
-      const displayName = font.displayName || font.name
-      const dl = font.downloadUrl || (font.path.startsWith('fonts/') ? '' : downloadUrl(font.path))
-      const fileName = font.name
-      md += `| ${displayName} | ${dl ? `[${fileName}](${dl})` : fileName} |\n`
+
+    if (anime.fontPackages && anime.fontPackages.length > 0) {
+      md += `| 字体压缩包 |\n`
+      md += `| --- |\n`
+      for (const pkg of anime.fontPackages) {
+        const dl = pkg.downloadUrl || (pkg.path.startsWith('font-packages/') ? '' : downloadUrl(pkg.path))
+        md += `| ${dl ? `[${pkg.name}](${dl})` : pkg.name} |\n`
+      }
+      md += `\n`
     }
-    md += `\n`
+
+    if (anime.fonts.length > 0) {
+      md += `| 字体名 | 字体下载 |\n`
+      md += `| --- | --- |\n`
+      const sortedFonts = [...anime.fonts].sort((a, b) => {
+        const sa = getFontSortInfo(a)
+        const sb = getFontSortInfo(b)
+        if (sa.group !== sb.group) return sa.group - sb.group
+        return sa.value.localeCompare(sb.value, 'en', { numeric: true, sensitivity: 'base' })
+      })
+      for (const font of sortedFonts) {
+        const displayName = font.displayName || font.name
+        const dl = font.downloadUrl || (font.path.startsWith('fonts/') ? '' : downloadUrl(font.path))
+        const fileName = font.name
+        md += `| ${displayName} | ${dl ? `[${fileName}](${dl})` : fileName} |\n`
+      }
+      md += `\n`
+    }
   }
 
   if (anime.staff?.position === 'after-fonts') {
@@ -290,26 +333,10 @@ export function parseAnimeReadme(content: string): {
   if (fontPackageSection) {
     const rows = fontPackageSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
-      if (row.includes('---') || row.includes('压缩包名')) continue
+      if (row.includes('---') || row.includes('压缩包名') || row.includes('字体压缩包')) continue
       const cols = row.split('|').map(c => c.trim()).filter(c => c)
       if (cols.length < 1) continue
-      const linkMatch = cols[0].match(/\[(.+?)\]\((.+?)\)/)
-      if (linkMatch) {
-        const fileName = linkMatch[1]
-        const dlUrl = linkMatch[2]
-        result.fontPackages.push({
-          name: fileName,
-          path: dlUrl.includes('/font-packages/') ? `font-packages/${fileName}` : `FontPackages/${fileName}`,
-          downloadUrl: dlUrl,
-        })
-      } else {
-        const fileName = cols[0]
-        result.fontPackages.push({
-          name: fileName,
-          path: `FontPackages/${fileName}`,
-          downloadUrl: '',
-        })
-      }
+      applyFontPackageRow(result, cols[0])
     }
   }
 
@@ -321,30 +348,22 @@ export function parseAnimeReadme(content: string): {
   const fontSection = content.match(/## 使用字体\n\n([\s\S]*?)(?=\n##|$)/)
   if (fontSection) {
     const rows = fontSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
+    let tableType: 'package' | 'font' | '' = ''
     for (const row of rows) {
-      if (row.includes('---') || row.includes('字体名')) continue
-      const cols = row.split('|').filter(c => c.trim())
-      if (cols.length >= 2) {
-        const displayName = cols[0].trim()
-        const linkMatch = cols[1].match(/\[(.+?)\]\((.+?)\)/)
-        if (linkMatch) {
-          const fileName = linkMatch[1]
-          const dlUrl = linkMatch[2]
-          result.fonts.push({
-            name: fileName,
-            path: dlUrl.includes('/fonts/') ? `fonts/${fileName}` : `Fonts/${fileName}`,
-            downloadUrl: dlUrl,
-            displayName,
-          })
-        } else {
-          const fileName = cols[1].trim()
-          result.fonts.push({
-            name: fileName,
-            path: `Fonts/${fileName}`,
-            downloadUrl: '',
-            displayName,
-          })
-        }
+      if (row.includes('字体压缩包')) {
+        tableType = 'package'
+        continue
+      }
+      if (row.includes('字体名')) {
+        tableType = 'font'
+        continue
+      }
+      if (row.includes('---')) continue
+      const cols = row.split('|').map(c => c.trim()).filter(c => c)
+      if (tableType === 'package' && cols.length >= 1) {
+        applyFontPackageRow(result, cols[0])
+      } else if (tableType === 'font' && cols.length >= 2) {
+        applyFontRow(result, cols[0], cols[1])
       }
     }
   }
