@@ -78,6 +78,7 @@ import { getContents, getFileText, getToken, uploadFiles, deleteFile, downloadUr
 import { deleteFontFromR2, listR2Fonts, listR2FontPackages, getR2Domain } from '../utils/api'
 import { formatFileSize } from '../utils/rename'
 import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
+import type { SubtitlePackageRef } from '../types'
 
 interface FontItem {
   name: string
@@ -282,6 +283,35 @@ async function doBatchDelete() {
   }
 }
 
+function parseSubtitlePackageFileInfo(name: string): string {
+  if (name.includes('繁日双语') || name.includes('繁日雙語') || name.includes('繁中') || name.includes('繁體')) return 'zh-hant'
+  if (name.includes('简日双语') || name.includes('简中') || name.includes('简体')) return 'zh-hans'
+  return ''
+}
+
+function mergeSubtitlePackages(readmePackages: SubtitlePackageRef[], filePackages: SubtitlePackageRef[]): SubtitlePackageRef[] {
+  const map = new Map<string, SubtitlePackageRef>()
+  for (const pkg of readmePackages) {
+    if (pkg.lang) map.set(pkg.lang, pkg)
+  }
+  for (const pkg of filePackages) {
+    if (pkg.lang) map.set(pkg.lang, pkg)
+  }
+  return Array.from(map.values())
+}
+
+function collectSubtitlePackagesFromContents(basePath: string, contents: any[]): SubtitlePackageRef[] {
+  return contents
+    .filter((f: any) => f.type === 'file' && /\.(zip|7z|rar)$/i.test(f.name) && f.name.includes('字幕合集压缩包'))
+    .map((f: any) => ({
+      name: f.name,
+      path: `${basePath}/${f.name}`,
+      lang: parseSubtitlePackageFileInfo(f.name),
+      downloadUrl: downloadUrl(`${basePath}/${f.name}`),
+    }))
+    .filter((pkg: SubtitlePackageRef) => !!pkg.lang)
+}
+
 async function linkFontToAnime() {
   if (!linkForm.value.year || !linkForm.value.anime || selectedFonts.value.length === 0) {
     message.warning('请选择年份和动画')
@@ -373,6 +403,7 @@ async function linkFontToAnime() {
     }
 
     const contents = await getContents(basePath)
+    const subtitlePackages = mergeSubtitlePackages(parsed.subtitlePackages || [], collectSubtitlePackagesFromContents(basePath, contents || []))
     const assFiles = (contents || []).filter((f: any) => f.name.endsWith('.ass'))
     const subtitles = assFiles.map((f: any) => {
       const epMatch = f.name.match(/E(\d+)/)
@@ -387,18 +418,27 @@ async function linkFontToAnime() {
       }
     })
 
+    const languages = Array.from(new Set([
+      ...parsed.languages,
+      ...subtitles.map((s: any) => s.lang).filter(Boolean),
+      ...subtitlePackages.map(pkg => pkg.lang).filter(Boolean),
+    ]))
+
     const animeInfo = {
       year: linkForm.value.year,
       folder: linkForm.value.anime,
       titleEn: linkForm.value.anime,
       titleCn: parsed.titleCn || linkForm.value.anime,
       coverUrl: parsed.coverUrl,
-      languages: parsed.languages,
+      languages,
       subtitles,
+      subtitlePackages,
       fonts: parsed.fonts,
       fontPackages: parsed.fontPackages,
       subtitleType: parsed.subtitleType || 'bilingual',
       episodeTitles: parsed.episodeTitles,
+      description: parsed.description,
+      staff: parsed.staff,
     }
 
     const newReadme = generateAnimeReadme(animeInfo)
