@@ -44,10 +44,6 @@
 
           <n-space align="center" size="small">
             <n-checkbox v-model:checked="subtitlePackageMode">作为字幕合集压缩包上传</n-checkbox>
-            <n-radio-group v-if="subtitlePackageMode" v-model:value="subtitlePackageLang">
-              <n-radio value="zh-hans">简体</n-radio>
-              <n-radio value="zh-hant">繁體</n-radio>
-            </n-radio-group>
           </n-space>
 
           <div
@@ -287,6 +283,8 @@ interface QueueItem {
   status: 'pending' | 'uploading' | 'done' | 'error'
   progress: number
   error?: string
+  packageLang?: string | null
+  packageOriginalExt?: string
 }
 
 const CURRENT_TEMPLATE_KEY = 'smzase_current_template'
@@ -301,7 +299,6 @@ const isFontDragging = ref(false)
 const fontPackageMode = ref(false)
 const fontPackageMultipartMode = ref(false)
 const subtitlePackageMode = ref(false)
-const subtitlePackageLang = ref<string | null>(null)
 const allowLargeSubtitleUpload = ref(false)
 const subtitleFileInput = ref<HTMLInputElement | null>(null)
 const fontFileInput = ref<HTMLInputElement | null>(null)
@@ -366,7 +363,7 @@ const currentAnimeLabel = computed(() => {
 
 const canUploadSubtitles = computed(() => {
   if (!template.value.titleEn || !template.value.year || !getToken()) return false
-  if (subtitlePackageMode.value) return !!subtitlePackageLang.value
+  if (subtitlePackageMode.value) return subtitleQueue.value.length > 0 && subtitleQueue.value.every(item => !!item.packageLang)
   return true
 })
 
@@ -395,6 +392,23 @@ const subtitleLanguageAliases = computed(() => ({
 const subtitleColumns: DataTableColumns<QueueItem> = [
   { title: '原始文件名', key: 'originalName', width: 200 },
   { title: '重命名后', key: 'newName', ellipsis: { tooltip: true } },
+  {
+    title: '语言', key: 'packageLang', width: 150,
+    render: (row) => subtitlePackageMode.value ? h(NSpace, { size: 4 }, {
+      default: () => [
+        h(NButton, {
+          size: 'tiny',
+          type: row.packageLang === 'zh-hans' ? 'primary' : 'default',
+          onClick: () => updateSubtitlePackageLang(row, 'zh-hans'),
+        }, { default: () => '简体' }),
+        h(NButton, {
+          size: 'tiny',
+          type: row.packageLang === 'zh-hant' ? 'primary' : 'default',
+          onClick: () => updateSubtitlePackageLang(row, 'zh-hant'),
+        }, { default: () => '繁體' }),
+      ],
+    }) : '-',
+  },
   { title: '大小', key: 'size', width: 100, render: (row) => formatFileSize(row.size) },
   {
     title: '状态', key: 'status', width: 150,
@@ -448,6 +462,13 @@ const fontColumns: DataTableColumns<QueueItem> = [
   },
 ]
 
+function updateSubtitlePackageLang(row: QueueItem, lang: string) {
+  row.packageLang = lang
+  row.newName = buildSubtitlePackageName(row.originalName, lang)
+  row.path = buildSubtitlePath(template.value, row.newName)
+  detectLanguagesFromQueue()
+}
+
 function removeSubtitleQueueItem(index: number) {
   const [removed] = subtitleQueue.value.splice(index, 1)
   if (removed) {
@@ -478,7 +499,7 @@ function detectLanguagesFromQueue() {
   const langs = new Set<string>()
   for (const item of subtitleQueue.value) {
     if (subtitlePackageMode.value) {
-      if (subtitlePackageLang.value) langs.add(subtitlePackageLang.value)
+      if (item.packageLang) langs.add(item.packageLang)
       continue
     }
     const parsed = parseOriginalName(item.originalName, subtitleLanguageAliases.value)
@@ -839,7 +860,7 @@ function getSubtitlePackageLabel(lang: string): string {
 function buildSubtitlePackageName(originalName: string, lang: string): string {
   const ext = originalName.match(/\.[^.]+$/)?.[0] || '.zip'
   const title = template.value.titleCn || template.value.name || template.value.titleEn
-  return `[${title}] [${getSubtitlePackageLabel(lang)}]  字幕合集压缩包${ext}`
+  return `${title} ${getSubtitlePackageLabel(lang)}  字幕合集压缩包${ext}`
 }
 
 function processSubtitleFiles(files: File[]) {
@@ -852,18 +873,14 @@ function processSubtitleFiles(files: File[]) {
     return
   }
 
-  if (subtitlePackageMode.value && !subtitlePackageLang.value) {
-    message.warning('作为字幕合集压缩包上传时，必须手动选择简体或繁體')
-    return
-  }
-
   for (const file of files) {
     if (subtitlePackageMode.value) {
       if (!isArchiveFileName(file.name)) {
         message.error(`不支持的字幕合集压缩包格式: ${file.name}`)
         continue
       }
-      const newName = buildSubtitlePackageName(file.name, subtitlePackageLang.value!)
+      const ext = file.name.match(/\.[^.]+$/)?.[0] || '.zip'
+      const newName = `请先选择语言  字幕合集压缩包${ext}`
       const path = buildSubtitlePath(template.value, newName)
       file.arrayBuffer().then((content) => {
         subtitleQueue.value.push({
@@ -875,6 +892,8 @@ function processSubtitleFiles(files: File[]) {
           content,
           status: 'pending',
           progress: 0,
+          packageLang: null,
+          packageOriginalExt: ext,
         })
       })
       continue
@@ -1228,6 +1247,10 @@ async function commitSubtitles() {
     message.error('请先设置 GitHub Token')
     return
   }
+  if (subtitlePackageMode.value && subtitleQueue.value.some(item => !item.packageLang)) {
+    message.warning('作为字幕合集压缩包上传时，必须为每个待上传文件选择简体或繁體')
+    return
+  }
   uploading.value = true
   try {
     const files: Array<{ path: string; content: string; encoding: 'utf-8' | 'base64' }> = []
@@ -1254,7 +1277,7 @@ async function commitSubtitles() {
     const newPackages: SubtitlePackageRef[] = packageMode ? subtitleQueue.value.map(item => ({
       name: item.newName,
       path: item.path,
-      lang: subtitlePackageLang.value || '',
+      lang: item.packageLang || '',
       downloadUrl: downloadUrl(item.path),
     })) : []
 
@@ -1528,10 +1551,6 @@ watch(fontPackageMode, () => {
 watch(subtitlePackageMode, () => {
   subtitleQueue.value = []
   detectedLanguages.value = []
-})
-
-watch(subtitlePackageLang, () => {
-  detectLanguagesFromQueue()
 })
 
 watch(subtitleLanguageConfig, () => {
