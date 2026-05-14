@@ -36,7 +36,12 @@
                       <n-button size="tiny" :loading="animeReadmeLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeReadme(year, anime.folder)">更新README</n-button>
                       <n-button size="tiny" :loading="sortLoading === `${year}/${anime.folder}`" @click.stop="refreshAnimeSort(year, anime.folder)">刷新排序</n-button>
                       <n-button size="tiny" @click.stop="openTemplateLinkModal(year, anime.folder)">关联模板</n-button>
-                      <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑简介/集标题</n-button>
+                      <n-tooltip trigger="hover">
+                        <template #trigger>
+                          <n-button size="tiny" :loading="episodeTitleLoading === `${year}/${anime.folder}`" @click.stop="openEpisodeTitleModal(year, anime.folder)">编辑内容</n-button>
+                        </template>
+                        可编辑简介、集标题、Staff 信息
+                      </n-tooltip>
                     </n-space>
                   </template>
                 </n-thing>
@@ -157,7 +162,7 @@
       </template>
     </n-modal>
 
-    <n-modal v-model:show="showEpisodeTitleModal" preset="card" title="编辑简介/集标题" style="width: 560px;">
+    <n-modal v-model:show="showEpisodeTitleModal" preset="card" title="编辑内容" style="width: 680px;">
       <n-collapse v-model:expanded-names="introTitleExpandedNames">
         <n-collapse-item title="集标题" name="episode-titles">
           <n-form label-placement="left" label-width="80">
@@ -175,6 +180,26 @@
             :autosize="{ minRows: 5, maxRows: 12 }"
           />
         </n-collapse-item>
+        <n-collapse-item title="Staff" name="staff">
+          <n-form label-placement="left" label-width="80">
+            <n-form-item label="放置位置">
+              <n-radio-group v-model:value="staffPosition">
+                <n-radio value="after-description">简介后面</n-radio>
+                <n-radio value="after-fonts">使用字体后面</n-radio>
+              </n-radio-group>
+            </n-form-item>
+            <n-form-item label="名单">
+              <n-space vertical style="width: 100%;">
+                <n-space v-for="(_, index) in staffItems" :key="index" :wrap="false" align="center">
+                  <n-input v-model:value="staffItems[index].role" placeholder="职位" style="width: 120px;" />
+                  <n-input v-model:value="staffItems[index].people" placeholder="人员" />
+                  <n-button size="small" type="error" @click="removeStaffItem(index)">删除</n-button>
+                </n-space>
+                <n-button size="small" @click="addStaffItem">添加职位</n-button>
+              </n-space>
+            </n-form-item>
+          </n-form>
+        </n-collapse-item>
       </n-collapse>
       <template #action>
         <n-space>
@@ -188,12 +213,12 @@
 
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
-import { NButton, NSpace, NPopconfirm, NTag, useMessage } from 'naive-ui'
+import { NButton, NSpace, NPopconfirm, NTag, NTooltip, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions, SelectOption } from 'naive-ui'
-import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
+import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef, StaffInfo, StaffItem, StaffPosition } from '../types'
 import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, getFileText, moveFiles } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
-import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles, getAnimeTemplateLinks, saveAnimeTemplateLinks, getAnimeDescriptions, saveAnimeDescriptions } from '../utils/api'
+import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles, getAnimeTemplateLinks, saveAnimeTemplateLinks, getAnimeDescriptions, saveAnimeDescriptions, getStaffSettings, getAnimeStaff, saveAnimeStaff } from '../utils/api'
 
 interface AnimeListItem {
   folder: string
@@ -397,7 +422,9 @@ const savingEpisodeTitles = ref(false)
 const episodeTitleLoading = ref('')
 const episodeTitleList = ref<Array<{ episode: number; title: string }>>([])
 const animeDescription = ref('')
-const introTitleExpandedNames = ref(['episode-titles'])
+const introTitleExpandedNames = ref<string[]>([])
+const staffPosition = ref<StaffPosition>('after-description')
+const staffItems = ref<StaffItem[]>([])
 const showTemplateLinkModal = ref(false)
 const templateLinkLoading = ref(false)
 const savingTemplateLink = ref(false)
@@ -753,6 +780,29 @@ async function mergeKvDescription(key: string, description: string): Promise<str
   }
 }
 
+async function mergeKvStaff(key: string, staff: StaffInfo): Promise<StaffInfo> {
+  try {
+    const result = await getAnimeStaff()
+    return result.staff[key] || staff
+  } catch {
+    return staff
+  }
+}
+
+function normalizeStaffItems(items: StaffItem[]): StaffItem[] {
+  return items
+    .map(item => ({ role: item.role.trim(), people: item.people.trim() }))
+    .filter(item => item.role || item.people)
+}
+
+function addStaffItem() {
+  staffItems.value.push({ role: '', people: '' })
+}
+
+function removeStaffItem(index: number) {
+  staffItems.value.splice(index, 1)
+}
+
 async function refreshAnimeReadme(year: string, folder: string) {
   const key = `${year}/${folder}`
   animeReadmeLoading.value = key
@@ -769,6 +819,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
     let subtitleType = 'bilingual'
     let episodeTitles: Record<number, string> = {}
     let description = ''
+    let staff: StaffInfo = { position: 'after-description', items: [] }
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
@@ -783,6 +834,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
         description = parsed.description
+        staff = parsed.staff
       }
     }
 
@@ -818,6 +870,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
 
     episodeTitles = await mergeKvEpisodeTitles(key, episodeTitles)
     description = await mergeKvDescription(key, description)
+    staff = await mergeKvStaff(key, staff)
 
     const animeInfo: AnimeInfo = {
       year,
@@ -832,6 +885,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
       subtitleType,
       episodeTitles,
       description,
+      staff,
     }
 
     const readmePath = `${basePath}/README.md`
@@ -926,7 +980,24 @@ async function openEpisodeTitleModal(year: string, folder: string) {
       // noop
     }
     animeDescription.value = description || animeDetail.value.description || ''
-    introTitleExpandedNames.value = ['episode-titles']
+    let staff = animeDetail.value.staff
+    try {
+      const allStaff = await getAnimeStaff()
+      staff = allStaff.staff[key] || staff
+    } catch {
+      // noop
+    }
+    if (!staff || staff.items.length === 0) {
+      try {
+        const settings = await getStaffSettings()
+        staff = { position: settings.settings.position, items: settings.settings.roles.map(role => ({ role, people: '' })) }
+      } catch {
+        staff = { position: 'after-description', items: [] }
+      }
+    }
+    staffPosition.value = staff.position
+    staffItems.value = staff.items.map(item => ({ ...item }))
+    introTitleExpandedNames.value = []
     showEpisodeTitleModal.value = true
   } finally {
     episodeTitleLoading.value = ''
@@ -943,6 +1014,7 @@ async function saveEpisodeTitles() {
     }
     animeDetail.value.episodeTitles = titles
     animeDetail.value.description = animeDescription.value.trim()
+    animeDetail.value.staff = { position: staffPosition.value, items: normalizeStaffItems(staffItems.value) }
     await updateReadme()
     const key = `${animeDetail.value.year}/${animeDetail.value.folder}`
     let allTitles: Record<string, Record<string, string>> = {}
@@ -972,8 +1044,22 @@ async function saveEpisodeTitles() {
       delete allDescriptions[key]
     }
     await saveAnimeDescriptions(allDescriptions)
+    let allStaff: Record<string, StaffInfo> = {}
+    try {
+      const result = await getAnimeStaff()
+      allStaff = result.staff
+    } catch {
+      // noop
+    }
+    const staff = { position: staffPosition.value, items: normalizeStaffItems(staffItems.value) }
+    if (staff.items.length > 0) {
+      allStaff[key] = staff
+    } else {
+      delete allStaff[key]
+    }
+    await saveAnimeStaff(allStaff)
     showEpisodeTitleModal.value = false
-    message.success('简介/集标题已保存')
+    message.success('内容已保存')
   } catch (err: any) {
     message.error(`保存失败: ${err.message}`)
   } finally {
@@ -1057,6 +1143,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
     let subtitleType = 'bilingual'
     let episodeTitles: Record<number, string> = {}
     let description = ''
+    let staff: StaffInfo = { position: 'after-description', items: [] }
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
@@ -1071,6 +1158,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
         description = parsed.description
+        staff = parsed.staff
       }
     }
 
@@ -1106,6 +1194,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
 
     episodeTitles = await mergeKvEpisodeTitles(key, episodeTitles)
     description = await mergeKvDescription(key, description)
+    staff = await mergeKvStaff(key, staff)
 
     animeDetail.value = {
       year,
@@ -1120,6 +1209,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
       subtitleType: subtitleType,
       episodeTitles,
       description,
+      staff,
     }
   } catch (err: any) {
     message.error(`加载详情失败: ${err.message}`)

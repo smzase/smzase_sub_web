@@ -1,4 +1,4 @@
-import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef } from '../types'
+import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef, StaffInfo, StaffItem } from '../types'
 import { downloadUrl } from './github'
 
 export function generateRootReadme(yearGroups: Array<{ year: string; animeList: Array<{ titleEn: string; titleCn: string }> }>): string {
@@ -50,6 +50,63 @@ function getFontSortInfo(font: FontRef): { group: number; value: string } {
   return { group: 2, value }
 }
 
+function generateStaffTable(staff?: StaffInfo, withHeading = false): string {
+  const items = (staff?.items || []).filter(item => item.role.trim() || item.people.trim())
+  if (items.length === 0) return ''
+  let md = withHeading ? `## Staff\n\n` : ''
+  md += `| 职位 | 人员 |\n`
+  md += `| --- | --- |\n`
+  for (const item of items) {
+    md += `| ${item.role.trim()} | ${item.people.trim()} |\n`
+  }
+  md += `\n`
+  return md
+}
+
+function generateLanguageLines(anime: AnimeInfo): string {
+  if (anime.languages.length === 0) return ''
+  let md = ''
+  const langOrder: Record<string, number> = { 'zh-hans': 0, 'zh-hant': 1 }
+  const sortedLangs = [...anime.languages].sort((a, b) => (langOrder[a] ?? 9) - (langOrder[b] ?? 9))
+  for (const lang of sortedLangs) {
+    if (lang === 'zh-hans') {
+      md += `- \`Zh-hans\` 为 ${anime.subtitleType === 'bilingual' ? '简日双语' : '简体中文'}\n`
+    } else if (lang === 'zh-hant') {
+      md += `- \`Zh-hant\` 为 ${anime.subtitleType === 'bilingual' ? '繁日雙語' : '繁體中文'}\n`
+    } else {
+      md += `- \`${lang}\`\n`
+    }
+  }
+  return md ? `${md}\n` : ''
+}
+
+function parseStaffTable(section: string): StaffItem[] {
+  const rows = section.trim().split('\n').filter(row => row.trim().startsWith('|'))
+  const items: StaffItem[] = []
+  for (const row of rows) {
+    if (row.includes('---') || row.includes('职位')) continue
+    const cols = row.split('|').map(c => c.trim()).filter(c => c)
+    if (cols.length >= 2) items.push({ role: cols[0], people: cols[1] })
+  }
+  return items
+}
+
+function applyLanguageLine(result: { languages: string[]; subtitleType: string }, text: string) {
+  if (text.includes('Zh-hans') || text.includes('zh-hans')) {
+    if (!result.languages.includes('zh-hans')) result.languages.push('zh-hans')
+    if (text.includes('双语') || text.includes('雙語')) result.subtitleType = 'bilingual'
+  } else if (text.includes('Zh-hant') || text.includes('zh-hant')) {
+    if (!result.languages.includes('zh-hant')) result.languages.push('zh-hant')
+    if (text.includes('双语') || text.includes('雙語')) result.subtitleType = 'bilingual'
+  } else if (text === '简体中文' || text === '简中') {
+    if (!result.languages.includes('zh-hans')) result.languages.push('zh-hans')
+    result.subtitleType = 'monolingual'
+  } else if (text === '繁體中文' || text === '繁体中文' || text === '繁中') {
+    if (!result.languages.includes('zh-hant')) result.languages.push('zh-hant')
+    result.subtitleType = 'monolingual'
+  }
+}
+
 export function generateAnimeReadme(anime: AnimeInfo): string {
   let md = ''
 
@@ -65,24 +122,13 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `${anime.description.trim()}\n\n`
   }
 
-  if (anime.languages.length > 0) {
-    md += `## 字幕语言\n\n`
-    const langOrder: Record<string, number> = { 'zh-hans': 0, 'zh-hant': 1 }
-    const sortedLangs = [...anime.languages].sort((a, b) => (langOrder[a] ?? 9) - (langOrder[b] ?? 9))
-    for (const lang of sortedLangs) {
-      if (lang === 'zh-hans') {
-        md += `- \`Zh-hans\` 为 ${anime.subtitleType === 'bilingual' ? '简日双语' : '简体中文'}\n`
-      } else if (lang === 'zh-hant') {
-        md += `- \`Zh-hant\` 为 ${anime.subtitleType === 'bilingual' ? '繁日雙語' : '繁體中文'}\n`
-      } else {
-        md += `- \`${lang}\`\n`
-      }
-    }
-    md += `\n`
+  if (anime.staff?.position === 'after-description') {
+    md += generateStaffTable(anime.staff)
   }
 
   if (anime.subtitles.length > 0) {
     md += `## 字幕列表\n\n`
+    md += generateLanguageLines(anime)
     md += `| 集数 | 标题 | 简体下载 | 繁體下載 |\n`
     md += `| --- | --- | --- | --- |\n`
 
@@ -144,6 +190,10 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `\n`
   }
 
+  if (anime.staff?.position === 'after-fonts') {
+    md += generateStaffTable(anime.staff, true)
+  }
+
   return md
 }
 
@@ -157,6 +207,7 @@ export function parseAnimeReadme(content: string): {
   subtitleType: string
   episodeTitles: Record<number, string>
   description: string
+  staff: StaffInfo
 } {
   const result = {
     coverUrl: '',
@@ -168,6 +219,7 @@ export function parseAnimeReadme(content: string): {
     subtitleType: 'bilingual',
     episodeTitles: {} as Record<number, string>,
     description: '',
+    staff: { position: 'after-description', items: [] } as StaffInfo,
   }
 
   const coverMatch = content.match(/!\[.*?\]\((.*?)\)/)
@@ -175,7 +227,7 @@ export function parseAnimeReadme(content: string): {
     result.coverUrl = coverMatch[1]
   }
 
-  const sectionHeadings = ['字幕语言', '字幕列表', '字体整合包', '使用字体']
+  const sectionHeadings = ['字幕语言', '字幕列表', '字体整合包', '使用字体', 'Staff']
   const cnMatches = content.match(/^## (.+)$/gm)
   if (cnMatches) {
     for (const m of cnMatches) {
@@ -191,7 +243,11 @@ export function parseAnimeReadme(content: string): {
     const escapedTitle = result.titleCn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const descriptionMatch = content.match(new RegExp(`^## ${escapedTitle}\\n\\n([\\s\\S]*?)(?=\\n## |$)`, 'm'))
     if (descriptionMatch) {
-      result.description = descriptionMatch[1].trim()
+      result.description = descriptionMatch[1].trim().replace(/\n\| 职位 \| 人员 \|[\s\S]*$/m, '').trim()
+      const inlineStaff = descriptionMatch[1].match(/\| 职位 \| 人员 \|\n\| --- \| --- \|\n[\s\S]*$/)
+      if (inlineStaff) {
+        result.staff = { position: 'after-description', items: parseStaffTable(inlineStaff[0]) }
+      }
     }
   }
 
@@ -201,24 +257,19 @@ export function parseAnimeReadme(content: string): {
     if (langLines) {
       for (const line of langLines) {
         const text = line.replace(/^- /, '').trim()
-        if (text.includes('Zh-hans') || text.includes('zh-hans')) {
-          result.languages.push('zh-hans')
-          if (text.includes('双语') || text.includes('雙語')) result.subtitleType = 'bilingual'
-        } else if (text.includes('Zh-hant') || text.includes('zh-hant')) {
-          result.languages.push('zh-hant')
-        } else if (text === '简体中文' || text === '简中') {
-          result.languages.push('zh-hans')
-          result.subtitleType = 'monolingual'
-        } else if (text === '繁體中文' || text === '繁体中文' || text === '繁中') {
-          result.languages.push('zh-hant')
-          result.subtitleType = 'monolingual'
-        }
+        applyLanguageLine(result, text)
       }
     }
   }
 
   const subSection = content.match(/## 字幕列表\n\n([\s\S]*?)(?=\n##|$)/)
   if (subSection) {
+    const langLines = subSection[1].match(/^- .+$/gm)
+    if (langLines) {
+      for (const line of langLines) {
+        applyLanguageLine(result, line.replace(/^- /, '').trim())
+      }
+    }
     const rows = subSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
       if (row.includes('---') || row.includes('集数')) continue
@@ -260,6 +311,11 @@ export function parseAnimeReadme(content: string): {
         })
       }
     }
+  }
+
+  const staffSection = content.match(/## Staff\n\n([\s\S]*?)(?=\n##|$)/)
+  if (staffSection) {
+    result.staff = { position: 'after-fonts', items: parseStaffTable(staffSection[1]) }
   }
 
   const fontSection = content.match(/## 使用字体\n\n([\s\S]*?)(?=\n##|$)/)

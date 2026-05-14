@@ -55,6 +55,30 @@
             </n-collapse-item>
           </n-collapse>
 
+          <n-divider title-placement="left">Staff</n-divider>
+          <n-collapse>
+            <n-collapse-item title="默认 Staff 配置" name="staff-settings">
+              <n-form-item label="放置位置">
+                <n-radio-group v-model:value="staffPosition">
+                  <n-radio value="after-description">简介后面</n-radio>
+                  <n-radio value="after-fonts">使用字体后面</n-radio>
+                </n-radio-group>
+              </n-form-item>
+              <n-form-item label="职位">
+                <n-space vertical style="width: 100%;">
+                  <n-space v-for="(_, index) in staffRoles" :key="index" :wrap="false" align="center">
+                    <n-input v-model:value="staffRoles[index]" placeholder="职位" style="width: 220px;" />
+                    <n-button size="small" type="error" @click="removeStaffRole(index)">删除</n-button>
+                  </n-space>
+                  <n-button size="small" @click="addStaffRole">添加职位</n-button>
+                </n-space>
+              </n-form-item>
+              <n-form-item>
+                <n-button type="primary" @click="saveStaffConfig" :loading="savingStaffSettings">保存 Staff 配置</n-button>
+              </n-form-item>
+            </n-collapse-item>
+          </n-collapse>
+
           <n-divider title-placement="left">GitHub</n-divider>
           <n-form-item label="Personal Access Token">
             <n-input
@@ -92,7 +116,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
-import { getGHToken, setGHToken, getR2Domain, setR2Domain, getUploadSettings, saveUploadSettings, getAccount, updateAccount, getSecondPasswordSettings, saveSecondPasswordSettings, clearSession } from '../utils/api'
+import type { StaffPosition } from '../types'
+import { getGHToken, setGHToken, getR2Domain, setR2Domain, getUploadSettings, saveUploadSettings, getAccount, updateAccount, getSecondPasswordSettings, saveSecondPasswordSettings, clearSession, getStaffSettings, saveStaffSettings } from '../utils/api'
 import { setToken } from '../utils/github'
 
 const message = useMessage()
@@ -101,6 +126,7 @@ const saving = ref(false)
 const savingUploadSettings = ref(false)
 const savingSecondPassword = ref(false)
 const savingAccount = ref(false)
+const savingStaffSettings = ref(false)
 const ghToken = ref('')
 const r2Domain = ref('')
 const allowLargeSubtitleUpload = ref(false)
@@ -110,15 +136,18 @@ const secondPassword = ref('')
 const accountUsername = ref('')
 const oldPassword = ref('')
 const newPassword = ref('')
+const staffPosition = ref<StaffPosition>('after-description')
+const staffRoles = ref<string[]>([])
 
 onMounted(async () => {
   try {
-    const [tokenResult, domainResult, uploadSettings, account, secondPasswordSettings] = await Promise.all([
+    const [tokenResult, domainResult, uploadSettings, account, secondPasswordSettings, staffSettings] = await Promise.all([
       getGHToken(),
       getR2Domain(),
       getUploadSettings(),
       getAccount(),
       getSecondPasswordSettings(),
+      getStaffSettings(),
     ])
     ghToken.value = tokenResult.token || ''
     r2Domain.value = domainResult.domain || ''
@@ -126,6 +155,8 @@ onMounted(async () => {
     accountUsername.value = account.username || ''
     secondPasswordEnabled.value = !!secondPasswordSettings.enabled
     secondPasswordConfigured.value = !!secondPasswordSettings.configured
+    staffPosition.value = staffSettings.settings.position
+    staffRoles.value = [...staffSettings.settings.roles]
     if (tokenResult.token) setToken(tokenResult.token)
   } catch (err: any) {
     message.error(`加载设置失败: ${err.message}`)
@@ -206,6 +237,30 @@ async function saveAccount() {
     message.error(`保存失败: ${err.message}`)
   } finally {
     savingAccount.value = false
+  }
+}
+
+function addStaffRole() {
+  staffRoles.value.push('')
+}
+
+function removeStaffRole(index: number) {
+  staffRoles.value.splice(index, 1)
+}
+
+async function saveStaffConfig() {
+  savingStaffSettings.value = true
+  try {
+    await saveStaffSettings({
+      position: staffPosition.value,
+      roles: staffRoles.value.map(role => role.trim()).filter(Boolean),
+    })
+    staffRoles.value = staffRoles.value.map(role => role.trim()).filter(Boolean)
+    message.success('Staff 配置已保存')
+  } catch (err: any) {
+    message.error(`保存失败: ${err.message}`)
+  } finally {
+    savingStaffSettings.value = false
   }
 }
 

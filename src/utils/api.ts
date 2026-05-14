@@ -1,3 +1,5 @@
+import type { StaffInfo, StaffPosition } from '../types'
+
 const API_BASE = '/api'
 
 let _sessionToken = ''
@@ -167,6 +169,28 @@ export async function saveAnimeDescriptions(descriptions: Record<string, string>
   return apiFetch('anime-descriptions', {
     method: 'POST',
     body: JSON.stringify({ descriptions }),
+  })
+}
+
+export async function getStaffSettings(): Promise<{ settings: { position: StaffPosition; roles: string[] } }> {
+  return apiFetch('staff-settings')
+}
+
+export async function saveStaffSettings(settings: { position: StaffPosition; roles: string[] }): Promise<any> {
+  return apiFetch('staff-settings', {
+    method: 'POST',
+    body: JSON.stringify({ settings }),
+  })
+}
+
+export async function getAnimeStaff(): Promise<{ staff: Record<string, StaffInfo> }> {
+  return apiFetch('anime-staff')
+}
+
+export async function saveAnimeStaff(staff: Record<string, StaffInfo>): Promise<any> {
+  return apiFetch('anime-staff', {
+    method: 'POST',
+    body: JSON.stringify({ staff }),
   })
 }
 

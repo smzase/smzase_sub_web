@@ -473,6 +473,30 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     return jsonResponse({ success: true })
   }
 
+  if (path === 'staff-settings' && request.method === 'GET') {
+    const raw = await env.subKV.get('staff:settings')
+    return jsonResponse({ settings: raw ? JSON.parse(raw) : { position: 'after-description', roles: ['翻译', '校对', '时轴', '压制', '特效', '美工', '监制'] } })
+  }
+
+  if (path === 'staff-settings' && request.method === 'POST') {
+    const body = await request.json() as { settings: { position?: string; roles?: string[] } }
+    const position = body.settings?.position === 'after-fonts' ? 'after-fonts' : 'after-description'
+    const roles = Array.isArray(body.settings?.roles) ? body.settings.roles.map(role => String(role).trim()).filter(Boolean) : []
+    await env.subKV.put('staff:settings', JSON.stringify({ position, roles }))
+    return jsonResponse({ success: true, settings: { position, roles } })
+  }
+
+  if (path === 'anime-staff' && request.method === 'GET') {
+    const raw = await env.subKV.get('animeStaff:list')
+    return jsonResponse({ staff: raw ? JSON.parse(raw) : {} })
+  }
+
+  if (path === 'anime-staff' && request.method === 'POST') {
+    const body = await request.json() as { staff: Record<string, any> }
+    await env.subKV.put('animeStaff:list', JSON.stringify(body.staff || {}))
+    return jsonResponse({ success: true })
+  }
+
   if (path === 'readme-cache' && request.method === 'GET') {
     const targetPath = new URL(request.url).searchParams.get('path') || ''
     if (!targetPath.endsWith('README.md')) return jsonResponse({ error: 'Invalid README path' }, 400)

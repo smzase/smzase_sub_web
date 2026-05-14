@@ -1,3 +1,15 @@
+export type StaffPosition = 'after-description' | 'after-fonts'
+
+export interface StaffItem {
+  role: string
+  people: string
+}
+
+export interface StaffInfo {
+  position: StaffPosition
+  items: StaffItem[]
+}
+
 export interface AnimeInfo {
   year: string
   folder: string
@@ -11,6 +23,7 @@ export interface AnimeInfo {
   subtitleType: string
   episodeTitles?: Record<number, string>
   description?: string
+  staff?: StaffInfo
 }
 
 export interface SubtitleFile {
