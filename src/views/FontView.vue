@@ -74,7 +74,7 @@
 import { ref, computed, onMounted, h } from 'vue'
 import { NButton, NSpace, NPopconfirm, NRadioGroup, NRadioButton, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import { getContents, getFileText, getToken, uploadFiles, deleteFile, downloadUrl } from '../utils/github'
+import { getContents, getFileText, getToken, uploadFiles, deleteFile, downloadUrl, readmeUrl } from '../utils/github'
 import { deleteFontFromR2, listR2Fonts, listR2FontPackages, getR2Domain } from '../utils/api'
 import { formatFileSize } from '../utils/rename'
 import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
@@ -312,6 +312,15 @@ function collectSubtitlePackagesFromContents(basePath: string, contents: any[]):
     .filter((pkg: SubtitlePackageRef) => !!pkg.lang)
 }
 
+async function getFreshReadmeText(path: string): Promise<string> {
+  try {
+    const res = await fetch(readmeUrl(path))
+    return res.ok ? await res.text() : ''
+  } catch {
+    return getFileText(path).catch(() => '')
+  }
+}
+
 async function linkFontToAnime() {
   if (!linkForm.value.year || !linkForm.value.anime || selectedFonts.value.length === 0) {
     message.warning('请选择年份和动画')
@@ -325,7 +334,7 @@ async function linkFontToAnime() {
 
     let readmeContent = ''
     try {
-      readmeContent = await getFileText(`${basePath}/README.md`)
+      readmeContent = await getFreshReadmeText(`${basePath}/README.md`)
     } catch {
       // noop
     }

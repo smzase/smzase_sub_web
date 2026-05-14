@@ -766,6 +766,15 @@ async function refreshYearReadme(year: string) {
   }
 }
 
+async function getFreshReadmeText(path: string): Promise<string> {
+  try {
+    const res = await fetch(readmeUrl(path))
+    return res.ok ? await res.text() : ''
+  } catch {
+    return getFileText(path).catch(() => '')
+  }
+}
+
 async function updateReadme() {
   if (!animeDetail.value || !expandedAnime.value) return
   try {
@@ -778,6 +787,20 @@ async function updateReadme() {
       animeDetail.value.subtitleType = linkedTemplate.subtitleType || animeDetail.value.subtitleType || 'bilingual'
     }
     const readmePath = `Anime subtitles/${animeDetail.value.year}/${animeDetail.value.titleEn}/README.md`
+    const currentText = await getFreshReadmeText(readmePath)
+    if (currentText) {
+      const current = parseAnimeReadme(currentText)
+      animeDetail.value.description = animeDetail.value.description || current.description
+      if (!animeDetail.value.staff || animeDetail.value.staff.items.length === 0) animeDetail.value.staff = current.staff
+      animeDetail.value.fontPackages = mergeFontPackages(animeDetail.value.fontPackages || [], current.fontPackages)
+      animeDetail.value.subtitlePackages = mergeSubtitlePackages(animeDetail.value.subtitlePackages || [], current.subtitlePackages)
+      animeDetail.value.fonts = mergeFonts(animeDetail.value.fonts, current.fonts)
+    }
+    const basePath = `Anime subtitles/${animeDetail.value.year}/${animeDetail.value.titleEn}`
+    const contents = await getContents(basePath).catch(() => null)
+    if (contents && Array.isArray(contents)) {
+      animeDetail.value.subtitlePackages = mergeSubtitlePackages(animeDetail.value.subtitlePackages || [], collectSubtitlePackagesFromContents(basePath, contents))
+    }
     const readmeContent = generateAnimeReadme(animeDetail.value)
     await uploadFiles(
       [{ path: readmePath, content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' }],
@@ -856,6 +879,20 @@ function mergeSubtitlePackages(readmePackages: SubtitlePackageRef[], filePackage
   return Array.from(map.values())
 }
 
+function mergeFontPackages(primary: FontPackageRef[], fallback: FontPackageRef[]): FontPackageRef[] {
+  const map = new Map<string, FontPackageRef>()
+  for (const pkg of fallback) map.set(pkg.name || pkg.downloadUrl, pkg)
+  for (const pkg of primary) map.set(pkg.name || pkg.downloadUrl, pkg)
+  return Array.from(map.values())
+}
+
+function mergeFonts(primary: FontRef[], fallback: FontRef[]): FontRef[] {
+  const map = new Map<string, FontRef>()
+  for (const font of fallback) map.set(font.name || font.downloadUrl, font)
+  for (const font of primary) map.set(font.name || font.downloadUrl, font)
+  return Array.from(map.values())
+}
+
 function collectSubtitlePackagesFromContents(basePath: string, contents: any[]): SubtitlePackageRef[] {
   return contents
     .filter((f: any) => f.type === 'file' && /\.(zip|7z|rar)$/i.test(f.name) && f.name.includes('字幕合集压缩包'))
@@ -889,7 +926,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
-      const text = await getFileText(`${basePath}/README.md`)
+      const text = await getFreshReadmeText(`${basePath}/README.md`)
       if (text) {
         const parsed = parseAnimeReadme(text)
         titleCn = parsed.titleCn
@@ -1221,7 +1258,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
 
     const readmeFile = contents.find((f: any) => f.name === 'README.md')
     if (readmeFile) {
-      const text = await getFileText(`${basePath}/README.md`)
+      const text = await getFreshReadmeText(`${basePath}/README.md`)
       if (text) {
         const parsed = parseAnimeReadme(text)
         titleCn = parsed.titleCn
