@@ -267,7 +267,7 @@ import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath,
 import type { SubtitleLanguageConfig } from '../utils/rename'
 import { uploadFiles, getToken, getContents, downloadUrl, getFileText } from '../utils/github'
 import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, getSubtitleLanguageConfig, saveSubtitleLanguageConfig, getUploadSettings, listR2Fonts, getR2Domain, getAnimeTemplateLinks, saveAnimeTemplateLinks } from '../utils/api'
-import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, mergeSubtitles } from '../utils/readme'
+import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, parseYearReadme, mergeSubtitles } from '../utils/readme'
 
 interface QueueItem {
   id: string
@@ -996,6 +996,37 @@ async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ font
   }
 }
 
+async function fetchYearAnimeList(year: string, currentTitleEn: string, currentTitleCn: string): Promise<Array<{ titleEn: string; titleCn: string }>> {
+  const animeMap = new Map<string, string>()
+  try {
+    const text = await getFileText(`Anime subtitles/${year}/README.md`)
+    if (text) {
+      const parsed = parseYearReadme(text)
+      for (const [titleEn, titleCn] of Object.entries(parsed)) {
+        animeMap.set(titleEn, titleCn)
+      }
+    }
+  } catch {
+    // noop
+  }
+  try {
+    const contents = await getContents(`Anime subtitles/${year}`)
+    if (contents && Array.isArray(contents)) {
+      for (const item of contents) {
+        if (item.type === 'dir' && item.name) {
+          if (!animeMap.has(item.name)) animeMap.set(item.name, '')
+        }
+      }
+    }
+  } catch {
+    // noop
+  }
+  animeMap.set(currentTitleEn, currentTitleCn)
+  return Array.from(animeMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' }))
+    .map(([titleEn, titleCn]) => ({ titleEn, titleCn }))
+}
+
 function getSubtitleLanguages(subtitles: SubtitleFile[], fallback: string[]): string[] {
   const langs = new Set<string>()
   for (const sub of subtitles) {
@@ -1156,9 +1187,8 @@ async function commitSubtitles() {
     files.push({ path: readmePath, content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' })
 
     const yearReadmePath = `Anime subtitles/${template.value.year}/README.md`
-    const yearReadme = generateYearReadme(template.value.year, [
-      { titleEn: template.value.titleEn, titleCn },
-    ])
+    const yearAnimeList = await fetchYearAnimeList(template.value.year, template.value.titleEn, titleCn)
+    const yearReadme = generateYearReadme(template.value.year, yearAnimeList)
     files.push({ path: yearReadmePath, content: btoa(unescape(encodeURIComponent(yearReadme))), encoding: 'base64' })
 
     const epList = [...new Set(newEpisodes.map(e => e.episode))].sort((a, b) => a - b)
