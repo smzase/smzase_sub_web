@@ -244,7 +244,7 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += `## 使用字体\n\n`
 
     if (anime.fontPackages && anime.fontPackages.length > 0) {
-      md += `| 字体压缩包 |\n`
+      md += `| 字体整合包 |\n`
       md += `| --- |\n`
       for (const pkg of anime.fontPackages) {
         const dl = pkg.downloadUrl || (pkg.path.startsWith('font-packages/') ? '' : downloadUrl(pkg.path))
@@ -407,7 +407,7 @@ export function parseAnimeReadme(content: string): {
     const rows = fontSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     let tableType: 'package' | 'font' | '' = ''
     for (const row of rows) {
-      if (row.includes('字体压缩包')) {
+      if (row.includes('字体压缩包') || row.includes('字体整合包')) {
         tableType = 'package'
         continue
       }
