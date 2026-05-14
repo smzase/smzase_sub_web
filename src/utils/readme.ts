@@ -2,7 +2,7 @@ import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef, StaffInfo, Staff
 import { downloadUrl } from './github'
 
 export function generateRootReadme(yearGroups: Array<{ year: string; animeList: Array<{ titleEn: string; titleCn: string }> }>): string {
-  let md = `# Anime subtitles\n\n`
+  let md = ''
   for (const group of yearGroups) {
     md += `## ${group.year}\n\n`
     md += `| 标题 | 中文名 |\n`
