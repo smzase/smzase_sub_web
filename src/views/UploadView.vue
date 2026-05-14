@@ -262,7 +262,7 @@
 import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { NTag, NButton, NSpace, NProgress, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef } from '../types'
+import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef, StaffInfo } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import type { SubtitleLanguageConfig } from '../utils/rename'
 import { uploadFiles, getToken, getContents, downloadUrl, getFileText } from '../utils/github'
@@ -931,12 +931,38 @@ async function fetchExistingSubtitles(): Promise<SubtitleFile[]> {
   }
 }
 
-async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; fontPackages: FontPackageRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
-  if (!selectedYear.value || !template.value.titleEn) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+interface AnimeReadmeInfo {
+  fonts: FontRef[]
+  fontPackages: FontPackageRef[]
+  coverUrl: string
+  titleCn: string
+  languages: string[]
+  subtitleType: string
+  episodeTitles: Record<number, string>
+  description: string
+  staff: StaffInfo
+}
+
+function createEmptyAnimeReadmeInfo(): AnimeReadmeInfo {
+  return {
+    fonts: [],
+    fontPackages: [],
+    coverUrl: '',
+    titleCn: '',
+    languages: [],
+    subtitleType: 'bilingual',
+    episodeTitles: {},
+    description: '',
+    staff: { position: 'after-description', items: [] },
+  }
+}
+
+async function fetchExistingReadmeInfo(): Promise<AnimeReadmeInfo> {
+  if (!selectedYear.value || !template.value.titleEn) return createEmptyAnimeReadmeInfo()
   const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
   try {
     const text = await getFileText(`${basePath}/README.md`)
-    if (!text) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    if (!text) return createEmptyAnimeReadmeInfo()
     const parsed = parseAnimeReadme(text)
     return {
       fonts: parsed.fonts,
@@ -946,9 +972,11 @@ async function fetchExistingReadmeInfo(): Promise<{ fonts: FontRef[]; fontPackag
       languages: parsed.languages,
       subtitleType: parsed.subtitleType || 'bilingual',
       episodeTitles: parsed.episodeTitles,
+      description: parsed.description,
+      staff: parsed.staff,
     }
   } catch {
-    return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    return createEmptyAnimeReadmeInfo()
   }
 }
 
@@ -976,11 +1004,11 @@ async function fetchAnimeSubtitles(year: string, anime: string): Promise<Subtitl
   }
 }
 
-async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ fonts: FontRef[]; fontPackages: FontPackageRef[]; coverUrl: string; titleCn: string; languages: string[]; subtitleType: string; episodeTitles: Record<number, string> }> {
+async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<AnimeReadmeInfo> {
   const basePath = `Anime subtitles/${year}/${anime}`
   try {
     const text = await getFileText(`${basePath}/README.md`)
-    if (!text) return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    if (!text) return createEmptyAnimeReadmeInfo()
     const parsed = parseAnimeReadme(text)
     return {
       fonts: parsed.fonts,
@@ -990,9 +1018,11 @@ async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<{ font
       languages: parsed.languages,
       subtitleType: parsed.subtitleType || 'bilingual',
       episodeTitles: parsed.episodeTitles,
+      description: parsed.description,
+      staff: parsed.staff,
     }
   } catch {
-    return { fonts: [], fontPackages: [], coverUrl: '', titleCn: '', languages: [], subtitleType: 'bilingual', episodeTitles: {} }
+    return createEmptyAnimeReadmeInfo()
   }
 }
 
@@ -1073,6 +1103,8 @@ async function linkFontsToAnime(fonts: FontRef[], year: string, anime: string): 
     fontPackages: info.fontPackages,
     subtitleType: info.subtitleType,
     episodeTitles: info.episodeTitles,
+    description: info.description,
+    staff: info.staff,
   }
   const newReadme = generateAnimeReadme(animeInfo)
   await uploadFiles(
@@ -1112,6 +1144,8 @@ async function linkFontPackagesToAnime(packages: FontPackageRef[], year: string,
     fontPackages: info.fontPackages,
     subtitleType: info.subtitleType,
     episodeTitles: info.episodeTitles,
+    description: info.description,
+    staff: info.staff,
   }
   const newReadme = generateAnimeReadme(animeInfo)
   await uploadFiles(
@@ -1180,6 +1214,8 @@ async function commitSubtitles() {
       fontPackages,
       subtitleType: template.value.subtitleType,
       episodeTitles: existingInfo.episodeTitles,
+      description: existingInfo.description,
+      staff: existingInfo.staff,
     }
 
     const readmePath = `Anime subtitles/${template.value.year}/${template.value.titleEn}/README.md`
