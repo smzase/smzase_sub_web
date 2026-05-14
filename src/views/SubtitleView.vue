@@ -349,9 +349,9 @@ async function saveTemplateLink() {
     const linkedTemplate = getLinkedTemplate(templateLinkTarget.value.year, templateLinkTarget.value.folder)
     if (animeDetail.value && expandedAnime.value === key && linkedTemplate) {
       animeDetail.value.titleCn = animeDetail.value.titleCn || linkedTemplate.titleCn || ''
-      animeDetail.value.coverUrl = animeDetail.value.coverUrl || linkedTemplate.coverUrl || ''
+      animeDetail.value.coverUrl = linkedTemplate.coverUrl || animeDetail.value.coverUrl || ''
       animeDetail.value.languages = mergeUniqueLanguages(animeDetail.value.languages, linkedTemplate.languages || [])
-      animeDetail.value.subtitleType = animeDetail.value.subtitleType || linkedTemplate.subtitleType || 'bilingual'
+      animeDetail.value.subtitleType = linkedTemplate.subtitleType || animeDetail.value.subtitleType || 'bilingual'
     }
     showTemplateLinkModal.value = false
     message.success('模板关联已保存')
@@ -741,9 +741,9 @@ async function updateReadme() {
     const linkedTemplate = getLinkedTemplate(animeDetail.value.year, animeDetail.value.folder)
     if (linkedTemplate) {
       animeDetail.value.titleCn = animeDetail.value.titleCn || linkedTemplate.titleCn || ''
-      animeDetail.value.coverUrl = animeDetail.value.coverUrl || linkedTemplate.coverUrl || ''
+      animeDetail.value.coverUrl = linkedTemplate.coverUrl || animeDetail.value.coverUrl || ''
       animeDetail.value.languages = mergeUniqueLanguages(animeDetail.value.languages, linkedTemplate.languages || [])
-      animeDetail.value.subtitleType = animeDetail.value.subtitleType || linkedTemplate.subtitleType || 'bilingual'
+      animeDetail.value.subtitleType = linkedTemplate.subtitleType || animeDetail.value.subtitleType || 'bilingual'
     }
     const readmePath = `Anime subtitles/${animeDetail.value.year}/${animeDetail.value.titleEn}/README.md`
     const readmeContent = generateAnimeReadme(animeDetail.value)
@@ -842,9 +842,9 @@ async function refreshAnimeReadme(year: string, folder: string) {
     const linkedTemplate = getLinkedTemplate(year, folder)
     if (linkedTemplate) {
       titleCn = titleCn || linkedTemplate.titleCn || ''
-      coverUrl = coverUrl || linkedTemplate.coverUrl || ''
+      coverUrl = linkedTemplate.coverUrl || coverUrl || ''
       languages = mergeUniqueLanguages(languages, linkedTemplate.languages || [])
-      subtitleType = subtitleType || linkedTemplate.subtitleType || 'bilingual'
+      subtitleType = linkedTemplate.subtitleType || subtitleType || 'bilingual'
     }
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
@@ -1166,9 +1166,9 @@ async function toggleAnimeDetail(year: string, folder: string) {
     const linkedTemplate = getLinkedTemplate(year, folder)
     if (linkedTemplate) {
       titleCn = titleCn || linkedTemplate.titleCn || ''
-      coverUrl = coverUrl || linkedTemplate.coverUrl || ''
+      coverUrl = linkedTemplate.coverUrl || coverUrl || ''
       languages = mergeUniqueLanguages(languages, linkedTemplate.languages || [])
-      subtitleType = subtitleType || linkedTemplate.subtitleType || 'bilingual'
+      subtitleType = linkedTemplate.subtitleType || subtitleType || 'bilingual'
     }
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
