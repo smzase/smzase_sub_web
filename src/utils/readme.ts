@@ -113,17 +113,23 @@ function applyLanguageLine(result: { languages: string[]; subtitleType: string }
   }
 }
 
-function applyFontPackageRow(result: { fontPackages: FontPackageRef[] }, cell: string) {
+function parsePackageLink(cell: string): { name: string; url: string } | null {
   const linkMatch = cell.match(/\[(.+?)\]\((.+?)\)/)
-  if (linkMatch) {
-    const fileName = linkMatch[1]
-    const dlUrl = linkMatch[2]
+  const url = linkMatch ? linkMatch[2] : cell.trim()
+  if (!/^https?:\/\//.test(url)) return null
+  const name = linkMatch ? linkMatch[1] : decodeURIComponent(url.split('/').pop() || '')
+  return { name, url }
+}
+
+function applyFontPackageRow(result: { fontPackages: FontPackageRef[] }, cell: string) {
+  const parsed = parsePackageLink(cell)
+  if (parsed) {
     result.fontPackages.push({
-      name: fileName,
-      path: dlUrl.includes('/font-packages/') ? `font-packages/${fileName}` : `FontPackages/${fileName}`,
-      downloadUrl: dlUrl,
+      name: parsed.name,
+      path: parsed.url.includes('/font-packages/') ? `font-packages/${parsed.name}` : `FontPackages/${parsed.name}`,
+      downloadUrl: parsed.url,
     })
-  } else {
+  } else if (cell.trim()) {
     result.fontPackages.push({
       name: cell,
       path: `FontPackages/${cell}`,
@@ -298,6 +304,7 @@ export function parseAnimeReadme(content: string): {
   description: string
   staff: StaffInfo
 } {
+  content = content.replace(/\r\n?/g, '\n')
   const result = {
     coverUrl: '',
     titleCn: '',
@@ -331,7 +338,7 @@ export function parseAnimeReadme(content: string): {
 
   if (result.titleCn) {
     const escapedTitle = result.titleCn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const descriptionMatch = content.match(new RegExp(`^## ${escapedTitle}\\n\\n([\\s\\S]*?)(?=\\n## |$)`, 'm'))
+    const descriptionMatch = content.match(new RegExp(`^## ${escapedTitle}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, 'm'))
     if (descriptionMatch) {
       const extracted = extractDescriptionAndStaff(descriptionMatch[1])
       result.description = extracted.description
@@ -341,7 +348,7 @@ export function parseAnimeReadme(content: string): {
     }
   }
 
-  const langSection = content.match(/## 字幕语言\n\n([\s\S]*?)(?=\n## 字幕列表|\n## 使用字体|\n## 字体整合包|\n## Staff|$)/)
+  const langSection = content.match(/## 字幕语言\s*\n([\s\S]*?)(?=\n## 字幕列表|\n## 使用字体|\n## 字体整合包|\n## 字体压缩包|\n## Staff|$)/)
   if (langSection) {
     const langText = langSection[1]
     const legacyDescriptionText = langText.replace(/^- .+$/gm, '').trim()
@@ -361,7 +368,7 @@ export function parseAnimeReadme(content: string): {
     }
   }
 
-  const subSection = content.match(/## 字幕列表\n\n([\s\S]*?)(?=\n##|$)/)
+  const subSection = content.match(/## 字幕列表\s*\n([\s\S]*?)(?=\n##|$)/)
   if (subSection) {
     const langLines = subSection[1].match(/^- .+$/gm)
     if (langLines) {
@@ -392,7 +399,7 @@ export function parseAnimeReadme(content: string): {
     }
   }
 
-  const fontPackageSection = content.match(/## (?:字体整合包|字体压缩包)\n\n([\s\S]*?)(?=\n##|$)/)
+  const fontPackageSection = content.match(/## (?:字体整合包|字体压缩包)\s*\n([\s\S]*?)(?=\n##|$)/)
   if (fontPackageSection) {
     const rows = fontPackageSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
@@ -403,12 +410,12 @@ export function parseAnimeReadme(content: string): {
     }
   }
 
-  const staffSection = content.match(/## Staff\n\n([\s\S]*?)(?=\n##|$)/)
+  const staffSection = content.match(/## Staff\s*\n([\s\S]*?)(?=\n##|$)/)
   if (staffSection) {
     result.staff = { position: 'after-fonts', items: parseStaffTable(staffSection[1]) }
   }
 
-  const fontSection = content.match(/## 使用字体\n\n([\s\S]*?)(?=\n##|$)/)
+  const fontSection = content.match(/## 使用字体\s*\n([\s\S]*?)(?=\n##|$)/)
   if (fontSection) {
     const rows = fontSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     let tableType: 'package' | 'font' | '' = ''

@@ -1056,6 +1056,35 @@ async function fetchExistingReadmeInfo(): Promise<AnimeReadmeInfo> {
   }
 }
 
+function parseSubtitlePackageFileInfo(name: string): string {
+  if (name.includes('繁日双语') || name.includes('繁日雙語') || name.includes('繁中') || name.includes('繁體')) return 'zh-hant'
+  if (name.includes('简日双语') || name.includes('简中') || name.includes('简体')) return 'zh-hans'
+  return ''
+}
+
+function mergeSubtitlePackages(readmePackages: SubtitlePackageRef[], filePackages: SubtitlePackageRef[]): SubtitlePackageRef[] {
+  const map = new Map<string, SubtitlePackageRef>()
+  for (const pkg of readmePackages) {
+    if (pkg.lang) map.set(pkg.lang, pkg)
+  }
+  for (const pkg of filePackages) {
+    if (pkg.lang) map.set(pkg.lang, pkg)
+  }
+  return Array.from(map.values())
+}
+
+function collectSubtitlePackagesFromContents(basePath: string, contents: any[]): SubtitlePackageRef[] {
+  return contents
+    .filter((f: any) => f.type === 'file' && /\.(zip|7z|rar)$/i.test(f.name) && f.name.includes('字幕合集压缩包'))
+    .map((f: any) => ({
+      name: f.name,
+      path: `${basePath}/${f.name}`,
+      lang: parseSubtitlePackageFileInfo(f.name),
+      downloadUrl: downloadUrl(`${basePath}/${f.name}`),
+    }))
+    .filter((pkg: SubtitlePackageRef) => !!pkg.lang)
+}
+
 async function fetchAnimeSubtitles(year: string, anime: string): Promise<SubtitleFile[]> {
   const basePath = `Anime subtitles/${year}/${anime}`
   try {
@@ -1077,6 +1106,17 @@ async function fetchAnimeSubtitles(year: string, anime: string): Promise<Subtitl
       })
   } catch {
     return []
+  }
+}
+
+async function fetchAnimeSubtitlePackages(year: string, anime: string, fallback: SubtitlePackageRef[]): Promise<SubtitlePackageRef[]> {
+  const basePath = `Anime subtitles/${year}/${anime}`
+  try {
+    const contents = await getContents(basePath)
+    if (!contents || !Array.isArray(contents)) return fallback
+    return mergeSubtitlePackages(fallback, collectSubtitlePackagesFromContents(basePath, contents))
+  } catch {
+    return fallback
   }
 }
 
@@ -1158,6 +1198,7 @@ async function linkFontsToAnime(fonts: FontRef[], year: string, anime: string): 
   const basePath = `Anime subtitles/${year}/${anime}`
   const readmePath = `${basePath}/README.md`
   const info = await fetchAnimeReadmeInfo(year, anime)
+  info.subtitlePackages = await fetchAnimeSubtitlePackages(year, anime, info.subtitlePackages)
   const subtitles = await fetchAnimeSubtitles(year, anime)
   let added = 0
   let skipped = 0
@@ -1200,6 +1241,7 @@ async function linkFontPackagesToAnime(packages: FontPackageRef[], year: string,
   const basePath = `Anime subtitles/${year}/${anime}`
   const readmePath = `${basePath}/README.md`
   const info = await fetchAnimeReadmeInfo(year, anime)
+  info.subtitlePackages = await fetchAnimeSubtitlePackages(year, anime, info.subtitlePackages)
   const subtitles = await fetchAnimeSubtitles(year, anime)
   let added = 0
   let skipped = 0
@@ -1285,6 +1327,7 @@ async function commitSubtitles() {
     const allSubs = mergeSubtitles(existingSubs, newEpisodes)
 
     const existingInfo = await fetchExistingReadmeInfo()
+    existingInfo.subtitlePackages = await fetchAnimeSubtitlePackages(template.value.year, template.value.titleEn, existingInfo.subtitlePackages)
     const coverUrl = template.value.coverUrl || existingInfo.coverUrl
     const titleCn = template.value.titleCn || existingInfo.titleCn
     const fonts = existingInfo.fonts

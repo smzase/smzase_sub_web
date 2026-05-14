@@ -839,6 +839,35 @@ function removeStaffItem(index: number) {
   staffItems.value.splice(index, 1)
 }
 
+function parseSubtitlePackageFileInfo(name: string): string {
+  if (name.includes('繁日双语') || name.includes('繁日雙語') || name.includes('繁中') || name.includes('繁體')) return 'zh-hant'
+  if (name.includes('简日双语') || name.includes('简中') || name.includes('简体')) return 'zh-hans'
+  return ''
+}
+
+function mergeSubtitlePackages(readmePackages: SubtitlePackageRef[], filePackages: SubtitlePackageRef[]): SubtitlePackageRef[] {
+  const map = new Map<string, SubtitlePackageRef>()
+  for (const pkg of readmePackages) {
+    if (pkg.lang) map.set(pkg.lang, pkg)
+  }
+  for (const pkg of filePackages) {
+    if (pkg.lang) map.set(pkg.lang, pkg)
+  }
+  return Array.from(map.values())
+}
+
+function collectSubtitlePackagesFromContents(basePath: string, contents: any[]): SubtitlePackageRef[] {
+  return contents
+    .filter((f: any) => f.type === 'file' && /\.(zip|7z|rar)$/i.test(f.name) && f.name.includes('字幕合集压缩包'))
+    .map((f: any) => ({
+      name: f.name,
+      path: `${basePath}/${f.name}`,
+      lang: parseSubtitlePackageFileInfo(f.name),
+      downloadUrl: downloadUrl(`${basePath}/${f.name}`),
+    }))
+    .filter((pkg: SubtitlePackageRef) => !!pkg.lang)
+}
+
 async function refreshAnimeReadme(year: string, folder: string) {
   const key = `${year}/${folder}`
   animeReadmeLoading.value = key
@@ -886,6 +915,8 @@ async function refreshAnimeReadme(year: string, folder: string) {
     }
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
+    const fileSubtitlePackages = collectSubtitlePackagesFromContents(basePath, contents)
+    subtitlePackages = mergeSubtitlePackages(subtitlePackages, fileSubtitlePackages)
     const subtitles: SubtitleFile[] = sortSubtitles(assFiles.map((f: any) => {
       const parsed = parseSubtitleFileInfo(f.name)
       return {
@@ -1216,6 +1247,8 @@ async function toggleAnimeDetail(year: string, folder: string) {
     }
 
     const assFiles = contents.filter((f: any) => f.name.endsWith('.ass'))
+    const fileSubtitlePackages = collectSubtitlePackagesFromContents(basePath, contents)
+    subtitlePackages = mergeSubtitlePackages(subtitlePackages, fileSubtitlePackages)
     const subtitles: SubtitleFile[] = sortSubtitles(assFiles.map((f: any) => {
       const parsed = parseSubtitleFileInfo(f.name)
       return {
