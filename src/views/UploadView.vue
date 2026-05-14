@@ -269,7 +269,7 @@ import type { DataTableColumns, SelectOption } from 'naive-ui'
 import type { UploadTemplate, SubtitleFile, SubtitlePackageRef, FontRef, FontPackageRef, StaffInfo } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import type { SubtitleLanguageConfig } from '../utils/rename'
-import { uploadFiles, getToken, getContents, downloadUrl, getFileText } from '../utils/github'
+import { uploadFiles, getToken, getContents, downloadUrl, getFileText, readmeUrl } from '../utils/github'
 import { uploadFontToR2, uploadFontPackageToR2, uploadFontPackageMultipartToR2, getTemplates as apiGetTemplates, saveTemplates as apiSaveTemplates, getSubtitleLanguageConfig, saveSubtitleLanguageConfig, getUploadSettings, listR2Fonts, getR2Domain, getAnimeTemplateLinks, saveAnimeTemplateLinks } from '../utils/api'
 import { generateAnimeReadme, generateYearReadme, parseAnimeReadme, parseYearReadme, mergeSubtitles } from '../utils/readme'
 
@@ -1032,11 +1032,20 @@ function createEmptyAnimeReadmeInfo(): AnimeReadmeInfo {
   }
 }
 
+async function getFreshReadmeText(path: string): Promise<string> {
+  try {
+    const res = await fetch(readmeUrl(path))
+    return res.ok ? await res.text() : ''
+  } catch {
+    return getFileText(path).catch(() => '')
+  }
+}
+
 async function fetchExistingReadmeInfo(): Promise<AnimeReadmeInfo> {
   if (!selectedYear.value || !template.value.titleEn) return createEmptyAnimeReadmeInfo()
   const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
   try {
-    const text = await getFileText(`${basePath}/README.md`)
+    const text = await getFreshReadmeText(`${basePath}/README.md`)
     if (!text) return createEmptyAnimeReadmeInfo()
     const parsed = parseAnimeReadme(text)
     return {
@@ -1123,7 +1132,7 @@ async function fetchAnimeSubtitlePackages(year: string, anime: string, fallback:
 async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<AnimeReadmeInfo> {
   const basePath = `Anime subtitles/${year}/${anime}`
   try {
-    const text = await getFileText(`${basePath}/README.md`)
+    const text = await getFreshReadmeText(`${basePath}/README.md`)
     if (!text) return createEmptyAnimeReadmeInfo()
     const parsed = parseAnimeReadme(text)
     return {

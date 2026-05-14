@@ -31,9 +31,10 @@ export function parseYearReadme(content: string): Record<string, string> {
   const result: Record<string, string> = {}
   const rows = content.split('\n').filter(line => line.trim().startsWith('|'))
   for (const row of rows) {
-    if (row.includes('---') || row.includes('标题')) continue
+    if (row.includes('---')) continue
     const cols = splitMarkdownRow(row)
     if (cols.length < 2) continue
+    if (cols[0] === '标题') continue
     const titleMatch = cols[0].match(/\[(.+?)\]\(.+?\)/)
     const titleEn = titleMatch ? titleMatch[1] : cols[0]
     const titleCn = cols[1]
@@ -89,9 +90,11 @@ function parseStaffTable(section: string): StaffItem[] {
   const rows = section.trim().split('\n').filter(row => row.trim().startsWith('|'))
   const items: StaffItem[] = []
   for (const row of rows) {
-    if (row.includes('---') || row.includes('职位')) continue
+    if (row.includes('---')) continue
     const cols = splitMarkdownRow(row)
-    if (cols.length >= 2 && (cols[0] || cols[1])) items.push({ role: cols[0], people: cols[1] })
+    if (cols.length < 2) continue
+    if (cols[0] === '职位') continue
+    if (cols[0] || cols[1]) items.push({ role: cols[0], people: cols[1] })
   }
   return items
 }
@@ -378,9 +381,10 @@ export function parseAnimeReadme(content: string): {
     }
     const rows = subSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
-      if (row.includes('---') || row.includes('集数')) continue
+      if (row.includes('---')) continue
       const cols = splitMarkdownRow(row)
       if (cols.length < 2) continue
+      if (cols[0] === '集数') continue
       const epLabel = cols[0]
       if (epLabel === '合集') {
         if (cols.length >= 4) {

@@ -793,7 +793,7 @@ async function updateReadme() {
       animeDetail.value.description = animeDetail.value.description || current.description
       if (!animeDetail.value.staff || animeDetail.value.staff.items.length === 0) animeDetail.value.staff = current.staff
       animeDetail.value.fontPackages = mergeFontPackages(animeDetail.value.fontPackages || [], current.fontPackages)
-      animeDetail.value.subtitlePackages = mergeSubtitlePackages(animeDetail.value.subtitlePackages || [], current.subtitlePackages)
+      animeDetail.value.subtitlePackages = mergeSubtitlePackages(current.subtitlePackages, animeDetail.value.subtitlePackages || [])
       animeDetail.value.fonts = mergeFonts(animeDetail.value.fonts, current.fonts)
     }
     const basePath = `Anime subtitles/${animeDetail.value.year}/${animeDetail.value.titleEn}`
@@ -806,8 +806,8 @@ async function updateReadme() {
       [{ path: readmePath, content: btoa(unescape(encodeURIComponent(readmeContent))), encoding: 'base64' }],
       `docs: 更新 README`
     )
-  } catch {
-    // noop
+  } catch (err: any) {
+    message.error(`更新 README 失败: ${err.message}`)
   }
 }
 
