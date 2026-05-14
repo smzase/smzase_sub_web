@@ -18,6 +18,7 @@ export interface AnimeInfo {
   coverUrl: string
   languages: string[]
   subtitles: SubtitleFile[]
+  subtitlePackages?: SubtitlePackageRef[]
   fonts: FontRef[]
   fontPackages?: FontPackageRef[]
   subtitleType: string
@@ -31,6 +32,13 @@ export interface SubtitleFile {
   path: string
   episode: number
   season: number
+  lang: string
+  downloadUrl: string
+}
+
+export interface SubtitlePackageRef {
+  name: string
+  path: string
   lang: string
   downloadUrl: string
 }

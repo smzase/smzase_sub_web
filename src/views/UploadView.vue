@@ -42,6 +42,14 @@
             </n-tag>
           </n-space>
 
+          <n-space align="center" size="small">
+            <n-checkbox v-model:checked="subtitlePackageMode">作为字幕合集压缩包上传</n-checkbox>
+            <n-radio-group v-if="subtitlePackageMode" v-model:value="subtitlePackageLang">
+              <n-radio value="zh-hans">简体</n-radio>
+              <n-radio value="zh-hant">繁體</n-radio>
+            </n-radio-group>
+          </n-space>
+
           <div
             class="drop-zone"
             :class="{ 'drop-zone--active': isDragging }"
@@ -54,16 +62,16 @@
               ref="subtitleFileInput"
               type="file"
               multiple
-              accept=".ass"
+              :accept="subtitlePackageMode ? '.zip,.7z,.rar' : '.ass'"
               style="display: none;"
               @change="onSubtitleFileInputChange"
             />
             <div style="padding: 32px 0; text-align: center;">
               <n-text style="font-size: 16px; display: block; margin-bottom: 8px;">
-                点击、拖拽或粘贴 ASS 字幕文件到此处上传
+                {{ subtitlePackageMode ? '点击、拖拽或粘贴字幕合集压缩包到此处上传' : '点击、拖拽或粘贴 ASS 字幕文件到此处上传' }}
               </n-text>
               <n-text depth="3">
-                文件名格式: 01.zh-hans.ass / 01.zh-hant.ass，语言将自动识别
+                {{ subtitlePackageMode ? '支持 ZIP/7Z/RAR 格式，必须手动选择简体或繁體，文件将上传到 GitHub 仓库' : `文件名格式: 01.${subtitleLanguageAliases.hans}.ass / 01.${subtitleLanguageAliases.hant}.ass，语言将自动识别` }}
               </n-text>
             </div>
           </div>
@@ -262,7 +270,7 @@
 import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { NTag, NButton, NSpace, NProgress, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import type { UploadTemplate, SubtitleFile, FontRef, FontPackageRef, StaffInfo } from '../types'
+import type { UploadTemplate, SubtitleFile, SubtitlePackageRef, FontRef, FontPackageRef, StaffInfo } from '../types'
 import { parseOriginalName, buildSubtitleName, buildSubtitlePath, buildFontPath, formatFileSize } from '../utils/rename'
 import type { SubtitleLanguageConfig } from '../utils/rename'
 import { uploadFiles, getToken, getContents, downloadUrl, getFileText } from '../utils/github'
@@ -292,6 +300,8 @@ const isDragging = ref(false)
 const isFontDragging = ref(false)
 const fontPackageMode = ref(false)
 const fontPackageMultipartMode = ref(false)
+const subtitlePackageMode = ref(false)
+const subtitlePackageLang = ref<string | null>(null)
 const allowLargeSubtitleUpload = ref(false)
 const subtitleFileInput = ref<HTMLInputElement | null>(null)
 const fontFileInput = ref<HTMLInputElement | null>(null)
@@ -355,7 +365,9 @@ const currentAnimeLabel = computed(() => {
 })
 
 const canUploadSubtitles = computed(() => {
-  return template.value.titleEn && template.value.year && getToken()
+  if (!template.value.titleEn || !template.value.year || !getToken()) return false
+  if (subtitlePackageMode.value) return !!subtitlePackageLang.value
+  return true
 })
 
 const savedTemplatesByYear = computed(() => {
@@ -465,6 +477,10 @@ function clearFontQueue() {
 function detectLanguagesFromQueue() {
   const langs = new Set<string>()
   for (const item of subtitleQueue.value) {
+    if (subtitlePackageMode.value) {
+      if (subtitlePackageLang.value) langs.add(subtitlePackageLang.value)
+      continue
+    }
     const parsed = parseOriginalName(item.originalName, subtitleLanguageAliases.value)
     if (parsed) langs.add(parsed.lang)
   }
@@ -815,6 +831,17 @@ function onPaste(e: ClipboardEvent) {
   }
 }
 
+function getSubtitlePackageLabel(lang: string): string {
+  if (template.value.subtitleType === 'bilingual') return lang === 'zh-hant' ? '繁日双语' : '简日双语'
+  return lang === 'zh-hant' ? '繁中' : '简中'
+}
+
+function buildSubtitlePackageName(originalName: string, lang: string): string {
+  const ext = originalName.match(/\.[^.]+$/)?.[0] || '.zip'
+  const title = template.value.titleCn || template.value.name || template.value.titleEn
+  return `[${title}] [${getSubtitlePackageLabel(lang)}]  字幕合集压缩包${ext}`
+}
+
 function processSubtitleFiles(files: File[]) {
   if (!template.value.titleEn) {
     message.warning('请先选择或输入动画标题')
@@ -825,7 +852,34 @@ function processSubtitleFiles(files: File[]) {
     return
   }
 
+  if (subtitlePackageMode.value && !subtitlePackageLang.value) {
+    message.warning('作为字幕合集压缩包上传时，必须手动选择简体或繁體')
+    return
+  }
+
   for (const file of files) {
+    if (subtitlePackageMode.value) {
+      if (!isArchiveFileName(file.name)) {
+        message.error(`不支持的字幕合集压缩包格式: ${file.name}`)
+        continue
+      }
+      const newName = buildSubtitlePackageName(file.name, subtitlePackageLang.value!)
+      const path = buildSubtitlePath(template.value, newName)
+      file.arrayBuffer().then((content) => {
+        subtitleQueue.value.push({
+          id: `${Date.now()}-${Math.random()}`,
+          originalName: file.name,
+          newName,
+          path,
+          size: file.size,
+          content,
+          status: 'pending',
+          progress: 0,
+        })
+      })
+      continue
+    }
+
     if (!file.name.endsWith('.ass')) {
       message.error(`不支持的文件格式: ${file.name}`)
       continue
@@ -934,6 +988,7 @@ async function fetchExistingSubtitles(): Promise<SubtitleFile[]> {
 interface AnimeReadmeInfo {
   fonts: FontRef[]
   fontPackages: FontPackageRef[]
+  subtitlePackages: SubtitlePackageRef[]
   coverUrl: string
   titleCn: string
   languages: string[]
@@ -947,6 +1002,7 @@ function createEmptyAnimeReadmeInfo(): AnimeReadmeInfo {
   return {
     fonts: [],
     fontPackages: [],
+    subtitlePackages: [],
     coverUrl: '',
     titleCn: '',
     languages: [],
@@ -967,6 +1023,7 @@ async function fetchExistingReadmeInfo(): Promise<AnimeReadmeInfo> {
     return {
       fonts: parsed.fonts,
       fontPackages: parsed.fontPackages,
+      subtitlePackages: parsed.subtitlePackages,
       coverUrl: parsed.coverUrl,
       titleCn: parsed.titleCn,
       languages: parsed.languages,
@@ -1013,6 +1070,7 @@ async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<AnimeR
     return {
       fonts: parsed.fonts,
       fontPackages: parsed.fontPackages,
+      subtitlePackages: parsed.subtitlePackages,
       coverUrl: parsed.coverUrl,
       titleCn: parsed.titleCn,
       languages: parsed.languages,
@@ -1057,10 +1115,13 @@ async function fetchYearAnimeList(year: string, currentTitleEn: string, currentT
     .map(([titleEn, titleCn]) => ({ titleEn, titleCn }))
 }
 
-function getSubtitleLanguages(subtitles: SubtitleFile[], fallback: string[]): string[] {
+function getSubtitleLanguages(subtitles: SubtitleFile[], fallback: string[], packages: SubtitlePackageRef[] = []): string[] {
   const langs = new Set<string>()
   for (const sub of subtitles) {
     if (sub.lang) langs.add(sub.lang)
+  }
+  for (const pkg of packages) {
+    if (pkg.lang) langs.add(pkg.lang)
   }
   for (const lang of fallback) langs.add(lang)
   return Array.from(langs)
@@ -1097,8 +1158,9 @@ async function linkFontsToAnime(fonts: FontRef[], year: string, anime: string): 
     titleEn: anime,
     titleCn: info.titleCn,
     coverUrl: info.coverUrl,
-    languages: getSubtitleLanguages(subtitles, info.languages),
+    languages: getSubtitleLanguages(subtitles, info.languages, info.subtitlePackages),
     subtitles,
+    subtitlePackages: info.subtitlePackages,
     fonts: info.fonts,
     fontPackages: info.fontPackages,
     subtitleType: info.subtitleType,
@@ -1138,8 +1200,9 @@ async function linkFontPackagesToAnime(packages: FontPackageRef[], year: string,
     titleEn: anime,
     titleCn: info.titleCn || template.value.titleCn,
     coverUrl: info.coverUrl,
-    languages: getSubtitleLanguages(subtitles, info.languages),
+    languages: getSubtitleLanguages(subtitles, info.languages, info.subtitlePackages),
     subtitles,
+    subtitlePackages: info.subtitlePackages,
     fonts: info.fonts,
     fontPackages: info.fontPackages,
     subtitleType: info.subtitleType,
@@ -1168,6 +1231,7 @@ async function commitSubtitles() {
   uploading.value = true
   try {
     const files: Array<{ path: string; content: string; encoding: 'utf-8' | 'base64' }> = []
+    const packageMode = subtitlePackageMode.value
 
     for (const item of subtitleQueue.value) {
       item.status = 'uploading'
@@ -1176,7 +1240,7 @@ async function commitSubtitles() {
       files.push({ path: item.path, content: base64, encoding: 'base64' })
     }
 
-    const newEpisodes: SubtitleFile[] = subtitleQueue.value.map((item) => {
+    const newEpisodes: SubtitleFile[] = packageMode ? [] : subtitleQueue.value.map((item) => {
       const parsed = parseOriginalName(item.originalName)!
       return {
         name: item.newName,
@@ -1187,6 +1251,12 @@ async function commitSubtitles() {
         downloadUrl: downloadUrl(item.path),
       }
     })
+    const newPackages: SubtitlePackageRef[] = packageMode ? subtitleQueue.value.map(item => ({
+      name: item.newName,
+      path: item.path,
+      lang: subtitlePackageLang.value || '',
+      downloadUrl: downloadUrl(item.path),
+    })) : []
 
     const existingSubs = await fetchExistingSubtitles()
     const allSubs = mergeSubtitles(existingSubs, newEpisodes)
@@ -1196,10 +1266,22 @@ async function commitSubtitles() {
     const titleCn = template.value.titleCn || existingInfo.titleCn
     const fonts = existingInfo.fonts
     const fontPackages = existingInfo.fontPackages
+    const subtitlePackages = [...existingInfo.subtitlePackages]
+    for (const pkg of newPackages) {
+      const index = subtitlePackages.findIndex(item => item.lang === pkg.lang)
+      if (index >= 0) subtitlePackages[index] = pkg
+      else subtitlePackages.push(pkg)
+    }
 
     const allLanguages = new Set<string>()
     for (const sub of allSubs) {
       if (sub.lang) allLanguages.add(sub.lang)
+    }
+    for (const pkg of subtitlePackages) {
+      if (pkg.lang) allLanguages.add(pkg.lang)
+    }
+    for (const lang of existingInfo.languages) {
+      if (lang) allLanguages.add(lang)
     }
 
     const animeInfo = {
@@ -1210,6 +1292,7 @@ async function commitSubtitles() {
       coverUrl,
       languages: Array.from(allLanguages),
       subtitles: allSubs,
+      subtitlePackages,
       fonts,
       fontPackages,
       subtitleType: template.value.subtitleType,
@@ -1228,11 +1311,12 @@ async function commitSubtitles() {
     files.push({ path: yearReadmePath, content: btoa(unescape(encodeURIComponent(yearReadme))), encoding: 'base64' })
 
     const epList = [...new Set(newEpisodes.map(e => e.episode))].sort((a, b) => a - b)
-    const langLabels = detectedLanguages.value.map(l =>
+    const langSource = packageMode ? newPackages.map(pkg => pkg.lang) : detectedLanguages.value
+    const langLabels = langSource.map(l =>
       l === 'zh-hans' ? (template.value.subtitleType === 'bilingual' ? '简日双语' : '简中') :
       l === 'zh-hant' ? (template.value.subtitleType === 'bilingual' ? '繁日雙語' : '繁中') : l
     ).join(' ')
-    const epStr = epList.map(e => `EP${String(e).padStart(2, '0')}`).join(', ')
+    const epStr = packageMode ? '字幕合集压缩包' : epList.map(e => `EP${String(e).padStart(2, '0')}`).join(', ')
     const commitTitleCn = titleCn || template.value.titleEn
     await uploadFiles(files, `[${commitTitleCn}] ${epStr} ${langLabels}`, 'main', ({ path, percent }) => {
       updateQueueProgress(subtitleQueue.value, path, percent)
@@ -1439,6 +1523,15 @@ watch(template, () => {
 
 watch(fontPackageMode, () => {
   fontQueue.value = []
+})
+
+watch(subtitlePackageMode, () => {
+  subtitleQueue.value = []
+  detectedLanguages.value = []
+})
+
+watch(subtitlePackageLang, () => {
+  detectLanguagesFromQueue()
 })
 
 watch(subtitleLanguageConfig, () => {

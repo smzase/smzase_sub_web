@@ -1,4 +1,4 @@
-import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef, StaffInfo, StaffItem } from '../types'
+import type { AnimeInfo, SubtitleFile, SubtitlePackageRef, FontRef, FontPackageRef, StaffInfo, StaffItem } from '../types'
 import { downloadUrl } from './github'
 
 export function generateRootReadme(yearGroups: Array<{ year: string; animeList: Array<{ titleEn: string; titleCn: string }> }>): string {
@@ -148,6 +148,26 @@ function applyFontRow(result: { fonts: FontRef[] }, displayName: string, cell: s
   }
 }
 
+function getSubtitlePackageCell(pkg?: SubtitlePackageRef): string {
+  if (!pkg) return '-'
+  const dl = pkg.downloadUrl || downloadUrl(pkg.path)
+  return `[${pkg.lang === 'zh-hant' ? '合集下載' : '合集下载'}](${dl})`
+}
+
+function applySubtitlePackageCell(result: { subtitlePackages: SubtitlePackageRef[] }, lang: string, cell: string) {
+  if (!cell || cell === '-') return
+  const linkMatch = cell.match(/\[(.+?)\]\((.+?)\)/)
+  if (!linkMatch) return
+  const dlUrl = linkMatch[2]
+  const decoded = decodeURIComponent(dlUrl.split('/').pop() || `${lang}.zip`)
+  result.subtitlePackages.push({
+    name: decoded,
+    path: dlUrl.includes('/Anime%20subtitles/') || dlUrl.includes('/Anime subtitles/') ? '' : decoded,
+    lang,
+    downloadUrl: dlUrl,
+  })
+}
+
 export function generateAnimeReadme(anime: AnimeInfo): string {
   let md = ''
 
@@ -167,11 +187,18 @@ export function generateAnimeReadme(anime: AnimeInfo): string {
     md += generateStaffTable(anime.staff)
   }
 
-  if (anime.subtitles.length > 0) {
+  if (anime.subtitles.length > 0 || (anime.subtitlePackages && anime.subtitlePackages.length > 0)) {
     md += `## 字幕列表\n\n`
     md += generateLanguageLines(anime)
     md += `| 集数 | 标题 | 简体下载 | 繁體下載 |\n`
     md += `| --- | --- | --- | --- |\n`
+
+    const subtitlePackages = anime.subtitlePackages || []
+    if (subtitlePackages.length > 0) {
+      const hansPackage = subtitlePackages.find(pkg => pkg.lang === 'zh-hans')
+      const hantPackage = subtitlePackages.find(pkg => pkg.lang === 'zh-hant')
+      md += `| 合集 |  | ${getSubtitlePackageCell(hansPackage)} | ${getSubtitlePackageCell(hantPackage)} |\n`
+    }
 
     const episodeMap = new Map<number, { zhHans?: SubtitleFile; zhHant?: SubtitleFile }>()
     for (const sub of anime.subtitles) {
@@ -246,6 +273,7 @@ export function parseAnimeReadme(content: string): {
   languages: string[]
   fonts: FontRef[]
   fontPackages: FontPackageRef[]
+  subtitlePackages: SubtitlePackageRef[]
   subtitles: SubtitleFile[]
   subtitleType: string
   episodeTitles: Record<number, string>
@@ -258,6 +286,7 @@ export function parseAnimeReadme(content: string): {
     languages: [] as string[],
     fonts: [] as FontRef[],
     fontPackages: [] as FontPackageRef[],
+    subtitlePackages: [] as SubtitlePackageRef[],
     subtitles: [] as SubtitleFile[],
     subtitleType: 'bilingual',
     episodeTitles: {} as Record<number, string>,
@@ -319,6 +348,13 @@ export function parseAnimeReadme(content: string): {
       const cols = row.split('|').map(c => c.trim()).filter(c => c)
       if (cols.length < 2) continue
       const epLabel = cols[0]
+      if (epLabel === '合集') {
+        if (cols.length >= 4) {
+          applySubtitlePackageCell(result, 'zh-hans', cols[2])
+          applySubtitlePackageCell(result, 'zh-hant', cols[3])
+        }
+        continue
+      }
       const epMatch = epLabel.match(/EP(\d+)/i) || epLabel.match(/E(\d+)/i)
       if (!epMatch) continue
       const epNum = parseInt(epMatch[1], 10)

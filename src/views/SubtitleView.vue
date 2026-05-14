@@ -55,6 +55,16 @@
                       </div>
 
                       <n-data-table
+                        v-if="animeDetail.subtitlePackages?.length"
+                        :columns="subtitlePackageColumns"
+                        :data="animeDetail.subtitlePackages"
+                        :row-key="(row: SubtitlePackageRef) => row.lang"
+                        :pagination="false"
+                        size="small"
+                        style="margin-bottom: 12px;"
+                      />
+
+                      <n-data-table
                         v-if="animeDetail.subtitles.length > 0"
                         :columns="subtitleColumns"
                         :data="animeDetail.subtitles"
@@ -231,7 +241,7 @@
 import { ref, h, onMounted } from 'vue'
 import { NButton, NSpace, NPopconfirm, NTag, NTooltip, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions, SelectOption } from 'naive-ui'
-import type { AnimeInfo, SubtitleFile, FontRef, FontPackageRef, StaffInfo, StaffItem, StaffPosition } from '../types'
+import type { AnimeInfo, SubtitleFile, SubtitlePackageRef, FontRef, FontPackageRef, StaffInfo, StaffItem, StaffPosition } from '../types'
 import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, getFileText, moveFiles } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
 import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles, getAnimeTemplateLinks, saveAnimeTemplateLinks, getAnimeDescriptions, saveAnimeDescriptions, getStaffSettings, getAnimeStaff, saveAnimeStaff } from '../utils/api'
@@ -449,6 +459,12 @@ const selectedTemplateLink = ref<string | null>(null)
 const templateLinkOptions = ref<SelectOption[]>([])
 const savedTemplates = ref<StoredTemplate[]>([])
 const animeTemplateLinks = ref<Record<string, string>>({})
+
+const subtitlePackageColumns: DataTableColumns<SubtitlePackageRef> = [
+  { title: '集数', key: 'episode', width: 70, render: () => '合集' },
+  { title: '语言', key: 'lang', width: 80, render: (row) => row.lang === 'zh-hans' ? '简中' : row.lang === 'zh-hant' ? '繁中' : row.lang },
+  { title: '文件名', key: 'name', ellipsis: { tooltip: true } },
+]
 
 const subtitleColumns: DataTableColumns<SubtitleFile> = [
   {
@@ -836,6 +852,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
     let languages: string[] = []
     let readmeFonts: FontRef[] = []
     let fontPackages: FontPackageRef[] = []
+    let subtitlePackages: SubtitlePackageRef[] = []
     let subtitleType = 'bilingual'
     let episodeTitles: Record<number, string> = {}
     let description = ''
@@ -851,6 +868,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
         languages = parsed.languages
         readmeFonts = parsed.fonts
         fontPackages = parsed.fontPackages
+        subtitlePackages = parsed.subtitlePackages
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
         description = parsed.description
@@ -885,6 +903,9 @@ async function refreshAnimeReadme(year: string, folder: string) {
       for (const s of subtitles) {
         if (s.lang) langSet.add(s.lang)
       }
+      for (const pkg of subtitlePackages) {
+        if (pkg.lang) langSet.add(pkg.lang)
+      }
       languages = Array.from(langSet)
     }
 
@@ -900,6 +921,7 @@ async function refreshAnimeReadme(year: string, folder: string) {
       coverUrl,
       languages,
       subtitles,
+      subtitlePackages,
       fonts: readmeFonts,
       fontPackages,
       subtitleType,
@@ -1160,6 +1182,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
     let languages: string[] = []
     let readmeFonts: FontRef[] = []
     let fontPackages: FontPackageRef[] = []
+    let subtitlePackages: SubtitlePackageRef[] = []
     let subtitleType = 'bilingual'
     let episodeTitles: Record<number, string> = {}
     let description = ''
@@ -1175,6 +1198,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
         languages = parsed.languages
         readmeFonts = parsed.fonts
         fontPackages = parsed.fontPackages
+        subtitlePackages = parsed.subtitlePackages
         subtitleType = parsed.subtitleType || 'bilingual'
         episodeTitles = parsed.episodeTitles
         description = parsed.description
@@ -1209,6 +1233,9 @@ async function toggleAnimeDetail(year: string, folder: string) {
       for (const s of subtitles) {
         if (s.lang) langSet.add(s.lang)
       }
+      for (const pkg of subtitlePackages) {
+        if (pkg.lang) langSet.add(pkg.lang)
+      }
       languages = Array.from(langSet)
     }
 
@@ -1224,6 +1251,7 @@ async function toggleAnimeDetail(year: string, folder: string) {
       coverUrl,
       languages,
       subtitles,
+      subtitlePackages,
       fonts: readmeFonts,
       fontPackages,
       subtitleType: subtitleType,
