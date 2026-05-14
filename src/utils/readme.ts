@@ -127,6 +127,18 @@ function applyFontPackageRow(result: { fontPackages: FontPackageRef[] }, cell: s
   }
 }
 
+function extractDescriptionAndStaff(section: string): { description: string; staffItems: StaffItem[] } {
+  let description = section.trim()
+  let staffItems: StaffItem[] = []
+  const staffMatch = description.match(/\n?\| 职位 \| 人员 \|\n\| --- \| --- \|\n[\s\S]*$/)
+  if (staffMatch) {
+    staffItems = parseStaffTable(staffMatch[0])
+    description = description.replace(staffMatch[0], '').trim()
+  }
+  description = description.replace(/^- `.+$/gm, '').trim()
+  return { description, staffItems }
+}
+
 function applyFontRow(result: { fonts: FontRef[] }, displayName: string, cell: string) {
   const linkMatch = cell.match(/\[(.+?)\]\((.+?)\)/)
   if (linkMatch) {
@@ -315,17 +327,26 @@ export function parseAnimeReadme(content: string): {
     const escapedTitle = result.titleCn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const descriptionMatch = content.match(new RegExp(`^## ${escapedTitle}\\n\\n([\\s\\S]*?)(?=\\n## |$)`, 'm'))
     if (descriptionMatch) {
-      result.description = descriptionMatch[1].trim().replace(/\n\| 职位 \| 人员 \|[\s\S]*$/m, '').trim()
-      const inlineStaff = descriptionMatch[1].match(/\| 职位 \| 人员 \|\n\| --- \| --- \|\n[\s\S]*$/)
-      if (inlineStaff) {
-        result.staff = { position: 'after-description', items: parseStaffTable(inlineStaff[0]) }
+      const extracted = extractDescriptionAndStaff(descriptionMatch[1])
+      result.description = extracted.description
+      if (extracted.staffItems.length > 0) {
+        result.staff = { position: 'after-description', items: extracted.staffItems }
       }
     }
   }
 
-  const langSection = content.match(/## 字幕语言\n\n([\s\S]*?)(?=\n##|$)/)
+  const langSection = content.match(/## 字幕语言\n\n([\s\S]*?)(?=\n## 字幕列表|\n## 使用字体|\n## 字体整合包|\n## Staff|$)/)
   if (langSection) {
-    const langLines = langSection[1].match(/^- .+$/gm)
+    const langText = langSection[1]
+    const legacyDescriptionText = langText.replace(/^- .+$/gm, '').trim()
+    if (!result.description && legacyDescriptionText) {
+      const extracted = extractDescriptionAndStaff(legacyDescriptionText)
+      result.description = extracted.description
+      if (extracted.staffItems.length > 0) {
+        result.staff = { position: 'after-description', items: extracted.staffItems }
+      }
+    }
+    const langLines = langText.match(/^- .+$/gm)
     if (langLines) {
       for (const line of langLines) {
         const text = line.replace(/^- /, '').trim()
