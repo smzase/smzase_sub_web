@@ -188,16 +188,25 @@
                 <n-radio value="after-fonts">使用字体后面</n-radio>
               </n-radio-group>
             </n-form-item>
-            <n-form-item label="名单">
-              <n-space vertical style="width: 100%;">
-                <n-space v-for="(_, index) in staffItems" :key="index" :wrap="false" align="center">
-                  <n-input v-model:value="staffItems[index].role" placeholder="职位" style="width: 120px;" />
-                  <n-input v-model:value="staffItems[index].people" placeholder="人员" />
-                  <n-button size="small" type="error" @click="removeStaffItem(index)">删除</n-button>
-                </n-space>
-                <n-button size="small" @click="addStaffItem">添加职位</n-button>
-              </n-space>
-            </n-form-item>
+            <div class="staff-editor">
+              <div class="staff-editor-header">
+                <div class="staff-role-header">职位</div>
+                <div class="staff-people-header">人员</div>
+                <div class="staff-action-header"></div>
+              </div>
+              <div v-for="(_, index) in staffItems" :key="index" class="staff-editor-row">
+                <n-input v-model:value="staffItems[index].role" placeholder="职位" class="staff-role-input" />
+                <n-input
+                  v-model:value="staffItems[index].people"
+                  type="textarea"
+                  placeholder="人员"
+                  class="staff-people-input"
+                  :autosize="{ minRows: 1, maxRows: 6 }"
+                />
+                <n-button size="small" circle type="error" @click="removeStaffItem(index)">×</n-button>
+              </div>
+              <n-button size="small" circle @click="addStaffItem">＋</n-button>
+            </div>
           </n-form>
         </n-collapse-item>
       </n-collapse>
@@ -789,9 +798,13 @@ async function mergeKvStaff(key: string, staff: StaffInfo): Promise<StaffInfo> {
   }
 }
 
+function normalizeStaffText(value: string): string {
+  return value.trim().replace(/\r\n|\r|\n/g, '<br>')
+}
+
 function normalizeStaffItems(items: StaffItem[]): StaffItem[] {
   return items
-    .map(item => ({ role: item.role.trim(), people: item.people.trim() }))
+    .map(item => ({ role: normalizeStaffText(item.role), people: normalizeStaffText(item.people) }))
     .filter(item => item.role || item.people)
 }
 
@@ -1233,3 +1246,30 @@ onMounted(() => {
   if (getToken()) loadData()
 })
 </script>
+
+<style scoped>
+.staff-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.staff-editor-header,
+.staff-editor-row {
+  display: grid;
+  grid-template-columns: 160px minmax(360px, 1fr) 34px;
+  gap: 8px;
+  align-items: center;
+}
+
+.staff-editor-header {
+  color: #606266;
+  font-size: 13px;
+}
+
+.staff-role-input,
+.staff-people-input {
+  width: 100%;
+}
+</style>
