@@ -195,7 +195,13 @@
                 <div class="staff-action-header"></div>
               </div>
               <div v-for="(_, index) in staffItems" :key="index" class="staff-editor-row">
-                <n-input v-model:value="staffItems[index].role" placeholder="职位" class="staff-role-input" />
+                <n-input
+                  v-model:value="staffItems[index].role"
+                  type="textarea"
+                  placeholder="职位"
+                  class="staff-role-input"
+                  :autosize="{ minRows: 1, maxRows: 6 }"
+                />
                 <n-input
                   v-model:value="staffItems[index].people"
                   type="textarea"
@@ -203,9 +209,9 @@
                   class="staff-people-input"
                   :autosize="{ minRows: 1, maxRows: 6 }"
                 />
-                <n-button size="small" circle type="error" @click="removeStaffItem(index)">×</n-button>
+                <n-button size="small" class="staff-delete-button" type="error" @click="removeStaffItem(index)">×</n-button>
               </div>
-              <n-button size="small" circle @click="addStaffItem">＋</n-button>
+              <n-button size="small" class="staff-add-button" @click="addStaffItem">＋</n-button>
             </div>
           </n-form>
         </n-collapse-item>
@@ -1258,7 +1264,7 @@ onMounted(() => {
 .staff-editor-header,
 .staff-editor-row {
   display: grid;
-  grid-template-columns: 160px minmax(360px, 1fr) 34px;
+  grid-template-columns: 220px minmax(340px, 1fr) 34px;
   gap: 8px;
   align-items: center;
 }
@@ -1271,5 +1277,16 @@ onMounted(() => {
 .staff-role-input,
 .staff-people-input {
   width: 100%;
+}
+
+.staff-delete-button,
+.staff-add-button {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+}
+
+.staff-add-button {
+  align-self: flex-start;
 }
 </style>
