@@ -74,7 +74,7 @@
 import { ref, computed, onMounted, h } from 'vue'
 import { NButton, NSpace, NPopconfirm, NRadioGroup, NRadioButton, useMessage } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
-import { getContents, getToken, uploadFiles, deleteFile, downloadUrl } from '../utils/github'
+import { getContents, getFileText, getToken, uploadFiles, deleteFile, downloadUrl, readmeUrl } from '../utils/github'
 import { deleteFontFromR2, listR2Fonts, listR2FontPackages, getR2Domain } from '../utils/api'
 import { formatFileSize } from '../utils/rename'
 import { parseAnimeReadme, generateAnimeReadme } from '../utils/readme'
@@ -313,9 +313,12 @@ function collectSubtitlePackagesFromContents(basePath: string, contents: any[]):
 }
 
 async function getFreshReadmeText(path: string): Promise<string> {
-  const content = await getContents(path).catch(() => null)
-  if (!content || Array.isArray(content) || !content.content) return ''
-  return decodeURIComponent(escape(atob(content.content.replace(/\n/g, ''))))
+  try {
+    const res = await fetch(readmeUrl(path))
+    return res.ok ? await res.text() : ''
+  } catch {
+    return getFileText(path).catch(() => '')
+  }
 }
 
 async function linkFontToAnime() {

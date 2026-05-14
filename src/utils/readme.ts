@@ -338,7 +338,7 @@ export function parseAnimeReadme(content: string): {
 
   if (result.titleCn) {
     const escapedTitle = result.titleCn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const descriptionMatch = content.match(new RegExp(`^## ${escapedTitle}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, 'm'))
+    const descriptionMatch = content.match(new RegExp(`(?:^|\\n)## ${escapedTitle}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, ''))
     if (descriptionMatch) {
       const extracted = extractDescriptionAndStaff(descriptionMatch[1])
       result.description = extracted.description
@@ -403,9 +403,11 @@ export function parseAnimeReadme(content: string): {
   if (fontPackageSection) {
     const rows = fontPackageSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     for (const row of rows) {
-      if (row.includes('---') || row.includes('压缩包名') || row.includes('字体压缩包') || row.includes('字体整合包')) continue
+      if (row.includes('---')) continue
       const cols = splitMarkdownRow(row)
       if (cols.length < 1) continue
+      const firstCell = cols[0].trim()
+      if (firstCell === '压缩包名' || firstCell === '字体压缩包' || firstCell === '字体整合包') continue
       applyFontPackageRow(result, cols[0])
     }
   }
@@ -420,16 +422,17 @@ export function parseAnimeReadme(content: string): {
     const rows = fontSection[1].trim().split('\n').filter(row => row.trim().startsWith('|'))
     let tableType: 'package' | 'font' | '' = ''
     for (const row of rows) {
-      if (row.includes('字体压缩包') || row.includes('字体整合包')) {
+      if (row.includes('---')) continue
+      const cols = splitMarkdownRow(row)
+      const firstCell = cols[0]?.trim() || ''
+      if (firstCell === '字体压缩包' || firstCell === '字体整合包') {
         tableType = 'package'
         continue
       }
-      if (row.includes('字体名')) {
+      if (firstCell === '字体名') {
         tableType = 'font'
         continue
       }
-      if (row.includes('---')) continue
-      const cols = splitMarkdownRow(row)
       if (tableType === 'package' && cols.length >= 1) {
         applyFontPackageRow(result, cols[0])
       } else if (tableType === 'font' && cols.length >= 2) {

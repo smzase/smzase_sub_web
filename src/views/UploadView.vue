@@ -735,7 +735,7 @@ async function onAnimeSelect(animeName: string) {
     animeLoading.value = true
     try {
       const basePath = `Anime subtitles/${selectedYear.value}/${animeName}`
-      const text = await getFreshReadmeText(`${basePath}/README.md`)
+      const text = await getFileText(`${basePath}/README.md`)
       if (text) {
         const parsed = parseAnimeReadme(text)
         template.value = {
@@ -1032,17 +1032,11 @@ function createEmptyAnimeReadmeInfo(): AnimeReadmeInfo {
   }
 }
 
-async function getFreshReadmeText(path: string): Promise<string> {
-  const content = await getContents(path).catch(() => null)
-  if (!content || Array.isArray(content) || !content.content) return ''
-  return decodeURIComponent(escape(atob(content.content.replace(/\n/g, ''))))
-}
-
 async function fetchExistingReadmeInfo(): Promise<AnimeReadmeInfo> {
   if (!selectedYear.value || !template.value.titleEn) return createEmptyAnimeReadmeInfo()
   const basePath = `Anime subtitles/${selectedYear.value}/${template.value.titleEn}`
   try {
-    const text = await getFreshReadmeText(`${basePath}/README.md`)
+    const text = await getFileText(`${basePath}/README.md`)
     if (!text) return createEmptyAnimeReadmeInfo()
     const parsed = parseAnimeReadme(text)
     return {
@@ -1129,7 +1123,7 @@ async function fetchAnimeSubtitlePackages(year: string, anime: string, fallback:
 async function fetchAnimeReadmeInfo(year: string, anime: string): Promise<AnimeReadmeInfo> {
   const basePath = `Anime subtitles/${year}/${anime}`
   try {
-    const text = await getFreshReadmeText(`${basePath}/README.md`)
+    const text = await getFileText(`${basePath}/README.md`)
     if (!text) return createEmptyAnimeReadmeInfo()
     const parsed = parseAnimeReadme(text)
     return {
