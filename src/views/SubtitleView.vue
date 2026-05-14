@@ -242,7 +242,7 @@ import { ref, h, onMounted } from 'vue'
 import { NButton, NSpace, NPopconfirm, NTag, NTooltip, useMessage } from 'naive-ui'
 import type { DataTableColumns, UploadCustomRequestOptions, SelectOption } from 'naive-ui'
 import type { AnimeInfo, SubtitleFile, SubtitlePackageRef, FontRef, FontPackageRef, StaffInfo, StaffItem, StaffPosition } from '../types'
-import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, getFileText, moveFiles } from '../utils/github'
+import { getContents, readmeUrl, getToken, downloadUrl, uploadFiles, deleteFile, moveFiles } from '../utils/github'
 import { parseAnimeReadme, generateAnimeReadme, generateYearReadme, parseYearReadme, generateRootReadme } from '../utils/readme'
 import { getTemplates as apiGetTemplates, getEpisodeTitles as apiGetEpisodeTitles, saveEpisodeTitles as apiSaveEpisodeTitles, getAnimeTemplateLinks, saveAnimeTemplateLinks, getAnimeDescriptions, saveAnimeDescriptions, getStaffSettings, getAnimeStaff, saveAnimeStaff } from '../utils/api'
 
@@ -767,12 +767,9 @@ async function refreshYearReadme(year: string) {
 }
 
 async function getFreshReadmeText(path: string): Promise<string> {
-  try {
-    const res = await fetch(readmeUrl(path))
-    return res.ok ? await res.text() : ''
-  } catch {
-    return getFileText(path).catch(() => '')
-  }
+  const content = await getContents(path).catch(() => null)
+  if (!content || Array.isArray(content) || !content.content) return ''
+  return decodeURIComponent(escape(atob(content.content.replace(/\n/g, ''))))
 }
 
 async function updateReadme() {
