@@ -40,7 +40,7 @@ export async function apiFetch(path: string, options?: RequestInit): Promise<any
   return data
 }
 
-export async function getAuthStatus(): Promise<{ configured: boolean; secondPasswordEnabled: boolean }> {
+export async function getAuthStatus(): Promise<{ configured: boolean; secondPasswordEnabled: boolean; turnstileEnabled: boolean; turnstileSiteKey: string }> {
   return apiFetch('auth/status')
 }
 
@@ -51,10 +51,10 @@ export async function setupAccount(username: string, password: string): Promise<
   })
 }
 
-export async function login(username: string, password: string, secondPassword?: string): Promise<{ token: string }> {
+export async function login(username: string, password: string, secondPassword?: string, turnstileToken?: string): Promise<{ token: string }> {
   return apiFetch('auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password, secondPassword }),
+    body: JSON.stringify({ username, password, secondPassword, turnstileToken }),
   })
 }
 
@@ -103,6 +103,17 @@ export async function setR2Domain(domain: string): Promise<any> {
   return apiFetch('auth/r2-domain', {
     method: 'POST',
     body: JSON.stringify({ domain }),
+  })
+}
+
+export async function getTurnstileSettings(): Promise<{ siteKey: string; enabled: boolean }> {
+  return apiFetch('auth/turnstile')
+}
+
+export async function saveTurnstileSettings(siteKey: string): Promise<any> {
+  return apiFetch('auth/turnstile', {
+    method: 'POST',
+    body: JSON.stringify({ siteKey }),
   })
 }
 
