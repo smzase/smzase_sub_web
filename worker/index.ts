@@ -193,7 +193,7 @@ async function decrypt(encrypted: string, env: Env): Promise<string> {
   return new TextDecoder().decode(data)
 }
 
-const PBKDF2_ITERATIONS = 310000
+const PBKDF2_ITERATIONS = 100000
 
 async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16))
