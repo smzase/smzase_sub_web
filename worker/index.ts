@@ -2,9 +2,10 @@ interface Env {
   ASSETS: { fetch: (request: Request) => Promise<Response> }
   subKV: KVNamespace
   R2: R2Bucket
+  ENCRYPTION_KEY: string
 }
 
-const ENCRYPTION_KEY = 'smzase_sub_enc_key_2026'
+const ENCRYPTION_KEY_V0 = 'smzase_sub_enc_key_2026'
 
 function parseFontName(buffer: ArrayBuffer): string {
   const view = new DataView(buffer)
@@ -146,59 +147,113 @@ async function getR2FontName(env: Env, key: string, fallbackName: string, index?
   return parsedName
 }
 
-async function encrypt(text: string): Promise<string> {
+async function deriveAESKey(encryptionKey: string): Promise<CryptoKey> {
+  if (!encryptionKey) throw new Error('ENCRYPTION_KEY environment variable is not set. Run: wrangler secret put ENCRYPTION_KEY')
   const encoder = new TextEncoder()
-  const data = encoder.encode(text)
-  const keyData = encoder.encode(ENCRYPTION_KEY)
-  const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const signature = await crypto.subtle.sign('HMAC', key, data)
-  const combined = new Uint8Array(data.length + signature.byteLength + 2)
-  combined[0] = (data.length >> 8) & 0xff
-  combined[1] = data.length & 0xff
-  combined.set(data, 2)
-  combined.set(new Uint8Array(signature), 2 + data.length)
-  return btoa(String.fromCharCode(...combined))
+  const keyBytes = encoder.encode(encryptionKey)
+  const hash = await crypto.subtle.digest('SHA-256', keyBytes)
+  return crypto.subtle.importKey('raw', hash, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
 }
 
-async function decrypt(encrypted: string): Promise<string> {
-  const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0))
+async function encrypt(text: string, env: Env): Promise<string> {
+  const key = await deriveAESKey(env.ENCRYPTION_KEY)
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const data = new TextEncoder().encode(text)
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data)
+  const combined = new Uint8Array(iv.length + encrypted.byteLength)
+  combined.set(iv, 0)
+  combined.set(new Uint8Array(encrypted), iv.length)
+  let binary = ''
+  for (let i = 0; i < combined.length; i++) binary += String.fromCharCode(combined[i])
+  return 'v1:' + btoa(binary)
+}
+
+async function decrypt(encrypted: string, env: Env): Promise<string> {
+  if (encrypted.startsWith('v1:')) {
+    const raw = atob(encrypted.slice(3))
+    const data = new Uint8Array(raw.length)
+    for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i)
+    const iv = data.slice(0, 12)
+    const ciphertext = data.slice(12)
+    const key = await deriveAESKey(env.ENCRYPTION_KEY)
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
+    return new TextDecoder().decode(decrypted)
+  }
+  const raw = atob(encrypted)
+  const combined = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) combined[i] = raw.charCodeAt(i)
   const dataLen = (combined[0] << 8) | combined[1]
   const data = combined.slice(2, 2 + dataLen)
   const signature = combined.slice(2 + dataLen)
   const encoder = new TextEncoder()
-  const keyData = encoder.encode(ENCRYPTION_KEY)
+  const keyData = encoder.encode(ENCRYPTION_KEY_V0)
   const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'])
   const valid = await crypto.subtle.verify('HMAC', key, signature, data)
   if (!valid) throw new Error('Decryption failed: invalid signature')
   return new TextDecoder().decode(data)
 }
 
+const PBKDF2_ITERATIONS = 310000
+
 async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
   const encoder = new TextEncoder()
-  const data = encoder.encode(password + ENCRYPTION_KEY)
+  const baseKey = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    baseKey,
+    256
+  )
+  const saltB64 = btoa(String.fromCharCode(...salt))
+  const hashB64 = btoa(String.fromCharCode(...new Uint8Array(bits)))
+  return `$pbkdf2-sha256$i=${PBKDF2_ITERATIONS}$${saltB64}$${hashB64}`
+}
+
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (storedHash.startsWith('$pbkdf2-sha256$')) {
+    const parts = storedHash.split('$')
+    const iterations = parseInt(parts[2].slice(2), 10)
+    const salt = Uint8Array.from(atob(parts[3]), c => c.charCodeAt(0))
+    const storedHashBytes = Uint8Array.from(atob(parts[4]), c => c.charCodeAt(0))
+    const encoder = new TextEncoder()
+    const baseKey = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
+    const bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+      baseKey,
+      256
+    )
+    const computedHash = new Uint8Array(bits)
+    if (computedHash.length !== storedHashBytes.length) return false
+    let diff = 0
+    for (let i = 0; i < computedHash.length; i++) diff |= computedHash[i] ^ storedHashBytes[i]
+    return diff === 0
+  }
+  const encoder = new TextEncoder()
+  const data = encoder.encode(password + ENCRYPTION_KEY_V0)
   const hash = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
+  const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
+  return hex === storedHash
 }
 
 async function getCredentials(env: Env): Promise<{ username: string; password: string } | null> {
   const encrypted = await env.subKV.get('auth:credentials')
   if (!encrypted) return null
   try {
-    return JSON.parse(await decrypt(encrypted))
+    return JSON.parse(await decrypt(encrypted, env))
   } catch {
     return null
   }
 }
 
 async function saveCredentials(env: Env, credentials: { username: string; password: string }): Promise<void> {
-  await env.subKV.put('auth:credentials', await encrypt(JSON.stringify(credentials)))
+  await env.subKV.put('auth:credentials', await encrypt(JSON.stringify(credentials), env))
 }
 
 async function getSecondPasswordSettings(env: Env): Promise<{ enabled: boolean; password: string }> {
   const encrypted = await env.subKV.get('auth:second_password')
   if (!encrypted) return { enabled: false, password: '' }
   try {
-    const settings = JSON.parse(await decrypt(encrypted))
+    const settings = JSON.parse(await decrypt(encrypted, env))
     return { enabled: !!settings.enabled, password: settings.password || '' }
   } catch {
     return { enabled: false, password: '' }
@@ -206,7 +261,7 @@ async function getSecondPasswordSettings(env: Env): Promise<{ enabled: boolean; 
 }
 
 async function saveSecondPasswordSettings(env: Env, settings: { enabled: boolean; password: string }): Promise<void> {
-  await env.subKV.put('auth:second_password', await encrypt(JSON.stringify(settings)))
+  await env.subKV.put('auth:second_password', await encrypt(JSON.stringify(settings), env))
 }
 
 function corsHeaders(): Record<string, string> {
@@ -303,13 +358,19 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const creds = await getCredentials(env)
     if (!creds) return jsonResponse({ error: 'No account configured' }, 400)
     const secondPasswordSettings = await getSecondPasswordSettings(env)
-    const hashed = await hashPassword(body.password)
+    const passwordValid = await verifyPassword(body.password, creds.password)
     const secondPasswordValid = !secondPasswordSettings.enabled || (
       !!body.secondPassword &&
       !!secondPasswordSettings.password &&
-      secondPasswordSettings.password === await hashPassword(body.secondPassword)
+      await verifyPassword(body.secondPassword, secondPasswordSettings.password)
     )
-    if (creds.username === body.username && creds.password === hashed && secondPasswordValid) {
+    if (creds.username === body.username && passwordValid && secondPasswordValid) {
+      if (!creds.password.startsWith('$pbkdf2-sha256$')) {
+        await saveCredentials(env, { ...creds, password: await hashPassword(body.password) })
+      }
+      if (secondPasswordSettings.enabled && secondPasswordSettings.password && !secondPasswordSettings.password.startsWith('$pbkdf2-sha256$') && body.secondPassword) {
+        await saveSecondPasswordSettings(env, { enabled: true, password: await hashPassword(body.secondPassword) })
+      }
       const sessionId = crypto.randomUUID()
       await env.subKV.put('session:active', JSON.stringify({ username: body.username, token: sessionId }), { expirationTtl: 86400 * 7 })
       return jsonResponse({ token: sessionId })
@@ -336,7 +397,7 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const encrypted = await env.subKV.get('auth:gh_token')
     if (!encrypted) return jsonResponse({ token: '' })
     try {
-      const token = await decrypt(encrypted)
+      const token = await decrypt(encrypted, env)
       return jsonResponse({ token })
     } catch {
       return jsonResponse({ token: '' })
@@ -345,7 +406,7 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
 
   if (path === 'auth/token' && request.method === 'POST') {
     const body = await request.json() as { token: string }
-    const encrypted = await encrypt(body.token)
+    const encrypted = await encrypt(body.token, env)
     await env.subKV.put('auth:gh_token', encrypted)
     return jsonResponse({ success: true })
   }
@@ -374,7 +435,7 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
     const nextCredentials = { username, password: creds.password }
     if (body.newPassword) {
       if (!body.oldPassword) return jsonResponse({ error: 'Missing old password' }, 400)
-      if (creds.password !== await hashPassword(body.oldPassword)) return jsonResponse({ error: 'Invalid old password' }, 400)
+      if (!(await verifyPassword(body.oldPassword, creds.password))) return jsonResponse({ error: 'Invalid old password' }, 400)
       nextCredentials.password = await hashPassword(body.newPassword)
     }
     await saveCredentials(env, nextCredentials)

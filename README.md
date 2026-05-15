@@ -11,7 +11,7 @@ smzase_sub 字幕仓库的统一管理网页端，基于 Vue 3 + Naive UI + Clou
 - 字体上传关联：上传字体时可选择关联动画；如果同名字体已存在于 R2，会跳过上传但仍继续关联
 - 字体名称识别：上传字体时读取字体内部名称，优先使用中文名称；字体名称写入 R2 元数据和 R2 索引文件
 - 模板管理：保存/加载常用标题模板，模板存储在 Workers KV
-- 账号系统：账号密码登录，GitHub Token 加密存储在 Workers KV
+- 账号系统：账号密码登录，密码使用 PBKDF2-SHA256（310K 迭代）哈希，GitHub Token 使用 AES-256-GCM 加密存储在 Workers KV
 - 系统设置：GitHub Token 和 R2 下载域名通过网页端配置，存储在 Workers KV
 
 ## 技术栈
@@ -51,14 +51,33 @@ binding = "R2"
 bucket_name = "smzase-fonts"
 ```
 
-### 3. 部署
+### 3. 设置加密密钥
+
+Worker 使用 AES-256-GCM 加密敏感数据（GitHub Token、账号凭证等），需要设置加密密钥环境变量：
+
+```bash
+# 生产环境（通过 Cloudflare Secret 存储，不会出现在代码或配置中）
+wrangler secret put ENCRYPTION_KEY
+```
+
+输入一个强随机字符串作为密钥（建议 32 字符以上），例如 `openssl rand -base64 32` 生成。
+
+本地开发时，在项目根目录创建 `.dev.vars` 文件（已被 `.gitignore` 忽略）：
+
+```text
+ENCRYPTION_KEY=你的本地开发密钥
+```
+
+> **注意**：本地开发密钥和生产密钥不同，因此本地加密的数据无法在生产环境解密，反之亦然。
+
+### 4. 部署
 
 ```bash
 npm install
 npm run deploy
 ```
 
-### 4. 初始化
+### 5. 初始化
 
 首次访问网页会进入创建管理员账号页面，设置用户名和密码后登录。
 
@@ -157,13 +176,21 @@ fonts/字体文件名.ttf
 
 Workers KV 用于保存：
 
-- `auth:credentials`：管理员账号信息（加密）
-- `auth:gh_token`：GitHub Token（加密）
+- `auth:credentials`：管理员账号信息（AES-256-GCM 加密，密码使用 PBKDF2-SHA256 哈希）
+- `auth:gh_token`：GitHub Token（AES-256-GCM 加密）
+- `auth:second_password`：二密设置（AES-256-GCM 加密）
 - `session:active`：当前登录会话
 - `templates:list`：上传模板列表
 - `config:r2_domain`：R2 字体下载域名
 
 字体名称元数据不再占用 KV。
+
+## 安全说明
+
+- **加密**：敏感数据（GitHub Token、账号凭证、二密）使用 AES-256-GCM 加密后存储在 Workers KV，加密密钥通过 Cloudflare Secret 环境变量管理，不硬编码在源码中
+- **密码哈希**：使用 PBKDF2-SHA256（310,000 次迭代 + 随机 16 字节盐），旧版 SHA-256 哈希在下次登录时自动迁移为 PBKDF2
+- **Token 存储**：GitHub Personal Access Token 仅保存在后端 KV 中，前端不持久化存储（仅内存中临时持有，页面刷新后从后端重新获取）
+- **加密数据迁移**：旧版 HMAC 签名格式的加密数据在下次读取时会自动用 AES-GCM 重新加密保存（`v1:` 前缀标识新格式）
 
 ## 仓库目录结构
 
@@ -198,6 +225,12 @@ smzase-fonts/
 ```bash
 npm install
 npm run dev
+```
+
+本地开发前，在项目根目录创建 `.dev.vars` 文件配置环境变量：
+
+```text
+ENCRYPTION_KEY=你的本地开发密钥
 ```
 
 ## 项目结构

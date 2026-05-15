@@ -8,13 +8,9 @@ const fileTextCache = new Map<string, string>()
 
 export function setToken(token: string) {
   _token = token
-  localStorage.setItem('gh_token', token)
 }
 
 export function getToken(): string {
-  if (!_token) {
-    _token = localStorage.getItem('gh_token') || ''
-  }
   return _token
 }
 
