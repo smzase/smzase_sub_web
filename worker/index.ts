@@ -5,8 +5,6 @@ interface Env {
   ENCRYPTION_KEY: string
 }
 
-const ENCRYPTION_KEY_V0 = 'smzase_sub_enc_key_2026'
-
 function parseFontName(buffer: ArrayBuffer): string {
   const view = new DataView(buffer)
   if (buffer.byteLength < 12) return ''
@@ -169,28 +167,15 @@ async function encrypt(text: string, env: Env): Promise<string> {
 }
 
 async function decrypt(encrypted: string, env: Env): Promise<string> {
-  if (encrypted.startsWith('v1:')) {
-    const raw = atob(encrypted.slice(3))
-    const data = new Uint8Array(raw.length)
-    for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i)
-    const iv = data.slice(0, 12)
-    const ciphertext = data.slice(12)
-    const key = await deriveAESKey(env.ENCRYPTION_KEY)
-    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
-    return new TextDecoder().decode(decrypted)
-  }
-  const raw = atob(encrypted)
-  const combined = new Uint8Array(raw.length)
-  for (let i = 0; i < raw.length; i++) combined[i] = raw.charCodeAt(i)
-  const dataLen = (combined[0] << 8) | combined[1]
-  const data = combined.slice(2, 2 + dataLen)
-  const signature = combined.slice(2 + dataLen)
-  const encoder = new TextEncoder()
-  const keyData = encoder.encode(ENCRYPTION_KEY_V0)
-  const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'])
-  const valid = await crypto.subtle.verify('HMAC', key, signature, data)
-  if (!valid) throw new Error('Decryption failed: invalid signature')
-  return new TextDecoder().decode(data)
+  if (!encrypted.startsWith('v1:')) throw new Error('Unsupported encryption format')
+  const raw = atob(encrypted.slice(3))
+  const data = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i)
+  const iv = data.slice(0, 12)
+  const ciphertext = data.slice(12)
+  const key = await deriveAESKey(env.ENCRYPTION_KEY)
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
+  return new TextDecoder().decode(decrypted)
 }
 
 const PBKDF2_ITERATIONS = 100000
@@ -210,29 +195,23 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
-  if (storedHash.startsWith('$pbkdf2-sha256$')) {
-    const parts = storedHash.split('$')
-    const iterations = parseInt(parts[2].slice(2), 10)
-    const salt = Uint8Array.from(atob(parts[3]), c => c.charCodeAt(0))
-    const storedHashBytes = Uint8Array.from(atob(parts[4]), c => c.charCodeAt(0))
-    const encoder = new TextEncoder()
-    const baseKey = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
-    const bits = await crypto.subtle.deriveBits(
-      { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
-      baseKey,
-      256
-    )
-    const computedHash = new Uint8Array(bits)
-    if (computedHash.length !== storedHashBytes.length) return false
-    let diff = 0
-    for (let i = 0; i < computedHash.length; i++) diff |= computedHash[i] ^ storedHashBytes[i]
-    return diff === 0
-  }
+  if (!storedHash.startsWith('$pbkdf2-sha256$')) throw new Error('Unsupported password hash format')
+  const parts = storedHash.split('$')
+  const iterations = parseInt(parts[2].slice(2), 10)
+  const salt = Uint8Array.from(atob(parts[3]), c => c.charCodeAt(0))
+  const storedHashBytes = Uint8Array.from(atob(parts[4]), c => c.charCodeAt(0))
   const encoder = new TextEncoder()
-  const data = encoder.encode(password + ENCRYPTION_KEY_V0)
-  const hash = await crypto.subtle.digest('SHA-256', data)
-  const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
-  return hex === storedHash
+  const baseKey = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    baseKey,
+    256
+  )
+  const computedHash = new Uint8Array(bits)
+  if (computedHash.length !== storedHashBytes.length) return false
+  let diff = 0
+  for (let i = 0; i < computedHash.length; i++) diff |= computedHash[i] ^ storedHashBytes[i]
+  return diff === 0
 }
 
 async function getCredentials(env: Env): Promise<{ username: string; password: string } | null> {
@@ -365,12 +344,6 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
       await verifyPassword(body.secondPassword, secondPasswordSettings.password)
     )
     if (creds.username === body.username && passwordValid && secondPasswordValid) {
-      if (!creds.password.startsWith('$pbkdf2-sha256$')) {
-        await saveCredentials(env, { ...creds, password: await hashPassword(body.password) })
-      }
-      if (secondPasswordSettings.enabled && secondPasswordSettings.password && !secondPasswordSettings.password.startsWith('$pbkdf2-sha256$') && body.secondPassword) {
-        await saveSecondPasswordSettings(env, { enabled: true, password: await hashPassword(body.secondPassword) })
-      }
       const sessionId = crypto.randomUUID()
       await env.subKV.put('session:active', JSON.stringify({ username: body.username, token: sessionId }), { expirationTtl: 86400 * 7 })
       return jsonResponse({ token: sessionId })
