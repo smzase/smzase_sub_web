@@ -17,7 +17,7 @@ id = "修改这里的ID"
 <br><br>
 以及，建议开个小黄云+字体缓存 `ttf otf ttc zip 7z rar`，要不然 R2存储 分分钟给你刷爆
 
-5、部署好后，进网页创建账号密码，随后进**设置**里添加你的 `Personal Access Token` <br>（你问我这个在哪弄？[点这里自己创一个](https://github.com/settings/personal-access-tokens)）<br>有限期选 `No expiration` ，指定你的字幕仓库，权限选择这几个：`Codespaces user secrets` 选择 `Read and Write`
+5、部署好后，进网页创建账号密码，随后进**设置**里添加你的 `Personal Access Token` <br>（你问我这个在哪弄？[点这里自己创一个](https://github.com/settings/personal-access-tokens)）<br>有限期选 `No expiration` ，指定你的字幕仓库，权限选择这个：`Codespaces user secrets` 选择 `Read and Write`
 <br><br>
 
 注意事项：不要在网页上传超过35MB的字幕，超过 35MB 推荐使用 Git 进行推送，随后点击 `刷新排序` 即可。
