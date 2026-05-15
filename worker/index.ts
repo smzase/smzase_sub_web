@@ -3,7 +3,6 @@ interface Env {
   subKV: KVNamespace
   R2: R2Bucket
   ENCRYPTION_KEY: string
-  TURNSTILE_SECRET_KEY: string
 }
 
 function parseFontName(buffer: ArrayBuffer): string {
@@ -259,18 +258,6 @@ function jsonResponse(data: any, status = 200): Response {
   })
 }
 
-async function verifyTurnstile(token: string, secretKey: string): Promise<boolean> {
-  if (!secretKey) return true
-  if (!token) return false
-  const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `secret=${encodeURIComponent(secretKey)}&response=${encodeURIComponent(token)}`,
-  })
-  const data = await resp.json() as { success: boolean }
-  return data.success
-}
-
 async function verifyAuth(request: Request, env: Env): Promise<boolean> {
   const authHeader = request.headers.get('Authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) return false
@@ -346,10 +333,7 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
   }
 
   if (path === 'auth/login' && request.method === 'POST') {
-    const body = await request.json() as { username: string; password: string; secondPassword?: string; turnstileToken?: string }
-    if (env.TURNSTILE_SECRET_KEY && !await verifyTurnstile(body.turnstileToken || '', env.TURNSTILE_SECRET_KEY)) {
-      return jsonResponse({ error: 'Turnstile verification failed' }, 403)
-    }
+    const body = await request.json() as { username: string; password: string; secondPassword?: string }
     const creds = await getCredentials(env)
     if (!creds) return jsonResponse({ error: 'No account configured' }, 400)
     const secondPasswordSettings = await getSecondPasswordSettings(env)
@@ -370,8 +354,7 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
   if (path === 'auth/status' && request.method === 'GET') {
     const existing = await env.subKV.get('auth:credentials')
     const secondPasswordSettings = await getSecondPasswordSettings(env)
-    const turnstileSiteKey = await env.subKV.get('config:turnstile_site_key')
-    return jsonResponse({ configured: !!existing, secondPasswordEnabled: secondPasswordSettings.enabled, turnstileEnabled: !!env.TURNSTILE_SECRET_KEY, turnstileSiteKey: turnstileSiteKey || '' })
+    return jsonResponse({ configured: !!existing, secondPasswordEnabled: secondPasswordSettings.enabled })
   }
 
   if (path === 'auth/logout' && request.method === 'POST') {
@@ -409,21 +392,6 @@ async function handleApi(request: Request, url: URL, env: Env): Promise<Response
   if (path === 'auth/r2-domain' && request.method === 'POST') {
     const body = await request.json() as { domain: string }
     await env.subKV.put('config:r2_domain', body.domain)
-    return jsonResponse({ success: true })
-  }
-
-  if (path === 'auth/turnstile' && request.method === 'GET') {
-    const siteKey = await env.subKV.get('config:turnstile_site_key')
-    return jsonResponse({ siteKey: siteKey || '', enabled: !!env.TURNSTILE_SECRET_KEY })
-  }
-
-  if (path === 'auth/turnstile' && request.method === 'POST') {
-    const body = await request.json() as { siteKey: string }
-    if (body.siteKey) {
-      await env.subKV.put('config:turnstile_site_key', body.siteKey)
-    } else {
-      await env.subKV.delete('config:turnstile_site_key')
-    }
     return jsonResponse({ success: true })
   }
 

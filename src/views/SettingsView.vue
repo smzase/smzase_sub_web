@@ -107,25 +107,6 @@
           <n-text depth="3" style="font-size: 12px; display: block; margin-top: -8px;">
             设置 R2 字体文件的公开下载域名。留空则使用 Worker 自身地址作为下载链接。需要你在 Cloudflare 中配置 R2 的自定义域名或公开访问。
           </n-text>
-
-          <n-divider title-placement="left">Turnstile 验证码</n-divider>
-          <n-form-item label="Site Key">
-            <n-input
-              v-model:value="turnstileSiteKey"
-              placeholder="0x4AAAAAAA..."
-            />
-          </n-form-item>
-          <n-form-item>
-            <n-button type="primary" @click="saveTurnstileConfig" :loading="savingTurnstile">保存 Turnstile 设置</n-button>
-          </n-form-item>
-          <n-text depth="3" style="font-size: 12px; display: block; margin-top: -8px;">
-            <template v-if="turnstileEnabled">
-              Turnstile 已启用（Secret Key 已配置）。在 <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank">Cloudflare Turnstile</a> 创建站点，将 Site Key 填入上方，Secret Key 通过 <code>wrangler secret put TURNSTILE_SECRET_KEY</code> 设置。
-            </template>
-            <template v-else>
-              Turnstile 未启用。请先通过 <code>wrangler secret put TURNSTILE_SECRET_KEY</code> 设置 Secret Key，然后填入 Site Key。
-            </template>
-          </n-text>
         </n-form>
       </n-spin>
     </n-card>
@@ -136,7 +117,7 @@
 import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import type { StaffPosition } from '../types'
-import { getGHToken, setGHToken, getR2Domain, setR2Domain, getUploadSettings, saveUploadSettings, getAccount, updateAccount, getSecondPasswordSettings, saveSecondPasswordSettings, clearSession, getStaffSettings, saveStaffSettings, getTurnstileSettings, saveTurnstileSettings } from '../utils/api'
+import { getGHToken, setGHToken, getR2Domain, setR2Domain, getUploadSettings, saveUploadSettings, getAccount, updateAccount, getSecondPasswordSettings, saveSecondPasswordSettings, clearSession, getStaffSettings, saveStaffSettings } from '../utils/api'
 import { setToken } from '../utils/github'
 
 const message = useMessage()
@@ -157,20 +138,16 @@ const oldPassword = ref('')
 const newPassword = ref('')
 const staffPosition = ref<StaffPosition>('after-description')
 const staffRoles = ref<string[]>([])
-const turnstileSiteKey = ref('')
-const turnstileEnabled = ref(false)
-const savingTurnstile = ref(false)
 
 onMounted(async () => {
   try {
-    const [tokenResult, domainResult, uploadSettings, account, secondPasswordSettings, staffSettings, turnstileResult] = await Promise.all([
+    const [tokenResult, domainResult, uploadSettings, account, secondPasswordSettings, staffSettings] = await Promise.all([
       getGHToken(),
       getR2Domain(),
       getUploadSettings(),
       getAccount(),
       getSecondPasswordSettings(),
       getStaffSettings(),
-      getTurnstileSettings(),
     ])
     ghToken.value = tokenResult.token || ''
     r2Domain.value = domainResult.domain || ''
@@ -180,8 +157,6 @@ onMounted(async () => {
     secondPasswordConfigured.value = !!secondPasswordSettings.configured
     staffPosition.value = staffSettings.settings.position
     staffRoles.value = [...staffSettings.settings.roles]
-    turnstileSiteKey.value = turnstileResult.siteKey || ''
-    turnstileEnabled.value = !!turnstileResult.enabled
     if (tokenResult.token) setToken(tokenResult.token)
   } catch (err: any) {
     message.error(`加载设置失败: ${err.message}`)
@@ -298,18 +273,6 @@ async function saveR2Domain() {
     message.error(`保存失败: ${err.message}`)
   } finally {
     saving.value = false
-  }
-}
-
-async function saveTurnstileConfig() {
-  savingTurnstile.value = true
-  try {
-    await saveTurnstileSettings(turnstileSiteKey.value)
-    message.success('Turnstile 设置已保存')
-  } catch (err: any) {
-    message.error(`保存失败: ${err.message}`)
-  } finally {
-    savingTurnstile.value = false
   }
 }
 </script>
