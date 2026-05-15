@@ -14,6 +14,13 @@ id = "修改这里的ID"
 
 4、去 workers 创建，并绑定 `KV命名空间` （变量名称为 `subKV` ） 和 `R2存储桶` （变量名称为 `smzase-fonts` ）<br>
 在**设置**里找到 **变量和机密**：类型`密钥`，变量名称 `ENCRYPTION_KEY` ,值你自己想一个
+<br><br>
+以及，建议开个小黄云+字体缓存 `ttf otf ttc zip 7z rar`，要不然 R2存储 分分钟给你刷爆
+
+5、部署好后，进网页创建账号密码，随后进**设置**里添加你的 `Personal Access Token` <br>（你问我这个在哪弄？[点这里自己创一个](https://github.com/settings/personal-access-tokens)）<br>有限期选 `No expiration` ，指定你的字幕仓库，权限选择这几个：`Codespaces user secrets` 选择 `Read and Write`
+<br><br>
+
+注意事项：不要在网页上传超过35MB的字幕，超过 35MB 推荐使用 Git 进行推送，随后点击 `刷新排序` 即可。
 
 <br><br><br>
 下面那一堆是 ai 生成的
