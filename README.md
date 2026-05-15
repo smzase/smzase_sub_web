@@ -1,3 +1,24 @@
+## 想部署很简单，你先fork，然后打开你的cf
+
+1、先创建一个 KV空间（Workers KV），命名空间名称为 `subKV`
+
+2、创建 R2 象存储，名称为 `smzase-fonts` ，位置选 `亚太地区`
+
+3、修改 `wrangler.toml` 内 `kv_namespaces` 的 `id`
+```
+[[kv_namespaces]]
+binding = "subKV"
+id = "修改这里的ID"
+```
+改为你 KV空间（Workers KV）的那一串 ID
+
+4、去 workers 创建，并绑定 `KV命名空间` （变量名称为 `subKV` ） 和 `R2存储桶` <br>
+在**设置**里找到 **变量和机密**：类型`密钥`，变量名称 `ENCRYPTION_KEY` ,值你自己想一个
+
+<br><br><br>
+下面那一堆是 ai 生成的
+<br><br><br>
+
 # smzase_sub_web
 
 smzase_sub 字幕仓库的统一管理网页端，基于 Vue 3 + Naive UI + Cloudflare Workers 构建。
