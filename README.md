@@ -12,7 +12,7 @@ id = "修改这里的ID"
 ```
 改为你 KV空间（Workers KV）的那一串 ID
 
-4、去 workers 创建，并绑定 `KV命名空间` （变量名称为 `subKV` ） 和 `R2存储桶` <br>
+4、去 workers 创建，并绑定 `KV命名空间` （变量名称为 `subKV` ） 和 `R2存储桶` （变量名称为 `smzase-fonts` ）<br>
 在**设置**里找到 **变量和机密**：类型`密钥`，变量名称 `ENCRYPTION_KEY` ,值你自己想一个
 
 <br><br><br>
